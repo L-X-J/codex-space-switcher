@@ -1,0 +1,16 @@
+# 本地状态与手工配置
+.codex-space-switcher-state/
+
+# 依赖与常见构建产物
+node_modules/
+dist/
+coverage/
+
+# 系统与编辑器文件
+.DS_Store
+.idea/
+.vscode/
+
+# 日志与临时文件
+*.log
+*.tmp

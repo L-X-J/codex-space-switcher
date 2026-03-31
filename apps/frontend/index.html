@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Codex Space Switcher</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Local Control Plane</p>
+          <h1>Codex Space Switcher</h1>
+          <p class="hero-text">
+            在一个本机控制台里追踪 Plus 与 Team 的额度、可用性和切换队列，让 Codex Desktop 在该切的时候自己切。
+          </p>
+          <div class="hero-actions">
+            <button id="refreshButton" class="primary-button">立即刷新状态</button>
+            <span id="connectionBadge" class="inline-badge">连接中</span>
+          </div>
+        </div>
+        <div class="hero-orbit">
+          <div class="orbit-ring orbit-ring-large"></div>
+          <div class="orbit-ring orbit-ring-small"></div>
+          <div class="orbit-core">
+            <span>Codex</span>
+            <strong id="activeSpaceLabel">未识别空间</strong>
+          </div>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="status-strip">
+          <article class="status-panel">
+            <p class="panel-label">当前激活空间</p>
+            <h2 id="statusActiveName">加载中</h2>
+            <p id="statusLastSwitch" class="muted-text">尚无切换记录</p>
+          </article>
+          <article class="status-panel">
+            <p class="panel-label">Codex Desktop 运行状态</p>
+            <h2 id="statusRuntime">加载中</h2>
+            <p id="statusRuntimeDetail" class="muted-text"></p>
+          </article>
+          <article class="status-panel">
+            <p class="panel-label">切换队列</p>
+            <h2 id="statusSwitchStage">空闲</h2>
+            <p id="statusSwitchMessage" class="muted-text"></p>
+          </article>
+        </section>
+
+        <section class="token-section">
+          <div class="section-heading">
+            <p class="eyebrow">Token Usage</p>
+            <h2>Token 用量</h2>
+          </div>
+          <div class="token-grid">
+            <article class="status-panel token-panel">
+              <p class="panel-label">今日总 Token</p>
+              <h2 id="tokenTodayTotal">0</h2>
+              <p id="tokenTodayDetail" class="muted-text">等待本地会话扫描</p>
+            </article>
+            <article class="status-panel token-panel">
+              <p class="panel-label">近 7 天 Token</p>
+              <h2 id="tokenWeekTotal">0</h2>
+              <p id="tokenWeekDetail" class="muted-text">等待本地会话扫描</p>
+            </article>
+            <article class="status-panel token-panel">
+              <p class="panel-label">当前空间今日 Token</p>
+              <h2 id="tokenActiveTotal">0</h2>
+              <p id="tokenActiveDetail" class="muted-text">等待空间识别</p>
+            </article>
+          </div>
+          <article class="status-panel token-latest-panel">
+            <p class="panel-label">最近一次 Rollout</p>
+            <h2 id="tokenLatestMeta">尚未读取到本地会话</h2>
+            <p id="tokenBreakdown" class="muted-text">
+              输入 0 · 缓存 0 · 输出 0 · 推理 0
+            </p>
+          </article>
+        </section>
+
+        <section class="spaces-section">
+          <div class="section-heading">
+            <p class="eyebrow">Spaces</p>
+            <h2>空间卡片</h2>
+          </div>
+          <div id="spacesGrid" class="spaces-grid"></div>
+        </section>
+      </main>
+    </div>
+
+    <template id="spaceCardTemplate">
+      <article class="space-card">
+        <div class="space-card-header">
+          <div>
+            <p class="space-kind"></p>
+            <h3 class="space-name"></h3>
+          </div>
+          <span class="space-health"></span>
+        </div>
+        <div class="space-metrics">
+          <div>
+            <p class="metric-label">周额度已用</p>
+            <strong class="metric-usage">--</strong>
+          </div>
+          <div>
+            <p class="metric-label">5 小时剩余</p>
+            <strong class="metric-remaining">--</strong>
+          </div>
+        </div>
+        <div class="space-footnote">
+          <p class="metric-label">最近刷新</p>
+          <p class="space-checked-at"></p>
+        </div>
+        <p class="space-diagnostics"></p>
+        <button class="switch-button">切换到此空间</button>
+      </article>
+    </template>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

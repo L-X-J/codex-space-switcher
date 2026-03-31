@@ -5,6 +5,8 @@
 
 这个项目的设计目标不是做一个公网产品，而是做一个“你自己这台 Mac 上可控、可诊断、可扩展”的本地控制平面。
 
+![Codex Space Switcher 首页预览](docs/screenshots/hero.png)
+
 ## 现在能做什么
 
 - 展示当前可见空间卡片，并区分 `Plus` / `Team`
@@ -23,6 +25,20 @@
   - 空闲后自动执行切换
 - 切换后自动关闭并重新拉起 Codex Desktop
 - 提供 REST API 与 SSE，方便后续继续扩展
+
+## 界面预览
+
+### 首页
+
+![Codex Space Switcher 首页](docs/screenshots/hero.png)
+
+### Token 用量面板
+
+![Codex Space Switcher Token 用量](docs/screenshots/token-usage.png)
+
+### 空间卡片
+
+![Codex Space Switcher 空间卡片](docs/screenshots/spaces.png)
 
 ## 运行截图对应的核心逻辑
 
@@ -96,6 +112,10 @@ codex-space-switcher/
 
 token 区块的数据来自本地 `token_count.info.total_token_usage`，必要时会回退到 `last_token_usage`，避免刚开启 rollout 时被统计成全 0。
 
+下图展示了 token 面板的当前表现形式：
+
+![Token 用量截图](docs/screenshots/token-usage.png)
+
 ## 本地启动
 
 ### 环境要求
@@ -142,6 +162,10 @@ npm test
 ### `GET /api/spaces`
 
 返回所有空间卡片。
+
+当前空间卡片会直接展示“周额度已用”和“5 小时剩余”：
+
+![空间卡片截图](docs/screenshots/spaces.png)
 
 ### `GET /api/status`
 

@@ -1,0 +1,477 @@
+import {
+  formatAccountKind,
+  formatCurrency,
+  formatDateTime,
+  formatPercent,
+  formatProxyClientKind,
+  formatResetCountdown,
+  formatTokenCount,
+  formatWindowMeta,
+  translateHealth,
+} from "./formatters.js";
+
+/**
+ * 本文件负责把状态对象投射到 DOM。
+ * 页面逻辑会把“拿到的数据”交给这里，渲染函数只关心如何展示。
+ */
+
+/**
+ * 渲染页面顶部状态。
+ *
+ * @param {any} status 当前状态摘要。
+ * @param {Record<string, Element>} elements DOM 引用集合。
+ * @returns {void}
+ */
+export function renderStatus(status, elements) {
+  if (!status) {
+    return;
+  }
+
+  elements.activeAccountName.textContent =
+    status.activeAccountName ?? "未选择账号";
+  elements.activeAccountDetail.textContent =
+    status.gateway?.activeAccountName
+      ? `${status.gateway.activeAccountName} 正在承接本地代理流量`
+      : "当前还没有可用的路由账号";
+  elements.gatewayBaseUrl.textContent =
+    status.gateway?.listenBaseUrl ?? window.location.origin;
+  elements.gatewayRoutePath.textContent =
+    status.gateway?.responsesPath ?? "/ai-router/api/responses";
+  elements.lastRequestAt.textContent = formatDateTime(
+    status.gateway?.lastRequestAt ?? null,
+  );
+
+  const lastClientLabel = status.gateway?.lastRequestClientLabel ?? null;
+  elements.lastRequestDetail.textContent =
+    status.gateway?.lastRequestResult
+      ? lastClientLabel
+        ? `${status.gateway.lastRequestResult} · ${lastClientLabel}`
+        : status.gateway.lastRequestResult
+      : "还没有代理请求";
+  elements.lastRequestModel.textContent =
+    status.gateway?.lastRequestModel ?? "等待模型请求";
+}
+
+/**
+ * 渲染 Codex 代理监控与开关区域。
+ *
+ * @param {any} codexProxy 当前 Codex 代理状态。
+ * @param {Record<string, Element>} elements DOM 引用集合。
+ * @param {{
+ *   isMutating?: boolean,
+ *   desiredEnabled?: boolean | null,
+ *   feedback?: string | null,
+ *   feedbackTone?: string | null,
+ * }=} viewState 前端交互态。
+ * @returns {void}
+ */
+export function renderCodexProxy(codexProxy, elements, viewState = {}) {
+  const config = codexProxy?.config ?? null;
+  const desiredEnabled =
+    typeof viewState.desiredEnabled === "boolean"
+      ? viewState.desiredEnabled
+      : null;
+  const visualEnabled = desiredEnabled ?? (config?.isEnabled === true);
+
+  if (elements.codexProxyToggle) {
+    elements.codexProxyToggle.checked = visualEnabled;
+    elements.codexProxyToggle.disabled =
+      viewState.isMutating === true || !config;
+  }
+
+  if (elements.codexProxyToggleHint) {
+    elements.codexProxyToggleHint.textContent =
+      viewState.isMutating === true
+        ? "写入中"
+        : visualEnabled
+          ? "已接管"
+          : "未接管";
+  }
+
+  setStatusChip(
+    elements.codexProxyConfigBadge,
+    config?.isEnabled ? "配置已接管" : "配置未接管",
+    config?.isEnabled ? "healthy" : "warning",
+  );
+
+  const trafficLabel = codexProxy?.isCodexTrafficRecent
+    ? `近 ${codexProxy.recentWindowMinutes} 分钟已检测`
+    : config?.isEnabled
+      ? `近 ${codexProxy?.recentWindowMinutes ?? 0} 分钟未检测`
+      : "等待接管后检测";
+  setStatusChip(
+    elements.codexProxyTrafficBadge,
+    trafficLabel,
+    codexProxy?.isCodexTrafficRecent
+      ? "healthy"
+      : config?.isEnabled
+        ? "warning"
+        : "neutral",
+  );
+
+  const lastProxyClient = codexProxy?.lastProxyClient ?? null;
+  const clientLabel = lastProxyClient
+    ? `${formatProxyClientKind(lastProxyClient.kind)} · ${lastProxyClient.label}`
+    : "暂无代理客户端";
+  setStatusChip(
+    elements.codexProxyClientBadge,
+    clientLabel,
+    mapClientBadgeState(lastProxyClient?.kind ?? null),
+  );
+
+  setTextContent(elements.codexProxyConfigPath, config?.configPath ?? "--");
+  setTextContent(
+    elements.codexProxyCurrentProvider,
+    config?.currentModelProvider ?? "--",
+  );
+  setTextContent(
+    elements.codexProxyCurrentBaseUrl,
+    config?.currentProviderBaseUrl ?? "--",
+  );
+  setTextContent(
+    elements.codexProxyExpectedProvider,
+    config?.providerName ?? "--",
+  );
+  setTextContent(
+    elements.codexProxyManagedBaseUrl,
+    config?.configuredBaseUrl ?? "--",
+  );
+  setTextContent(
+    elements.codexProxyExpectedBaseUrl,
+    config?.expectedBaseUrl ?? "--",
+  );
+  setTextContent(
+    elements.codexProxyLastCodexRequestAt,
+    formatDateTime(codexProxy?.lastCodexRequestAt ?? null),
+  );
+  setTextContent(
+    elements.codexProxyLastProxyRequestAt,
+    formatDateTime(codexProxy?.lastProxyRequestAt ?? null),
+  );
+
+  const diagnostics = buildCodexProxyDiagnostics(codexProxy);
+  renderTextList(
+    elements.codexProxyDiagnostics,
+    diagnostics.length > 0 ? diagnostics : ["当前没有额外诊断。"],
+  );
+
+  if (elements.codexProxyFeedback) {
+    elements.codexProxyFeedback.textContent =
+      viewState.feedback ?? buildDefaultProxyFeedback(codexProxy);
+    elements.codexProxyFeedback.dataset.tone =
+      viewState.feedbackTone ?? inferFeedbackTone(codexProxy);
+  }
+}
+
+/**
+ * 渲染筛选下拉框。
+ *
+ * @param {any} usageDashboard 当前统计摘要。
+ * @param {string} selectedFilterId 当前选中的筛选项。
+ * @param {HTMLSelectElement} select 筛选下拉框。
+ * @returns {void}
+ */
+export function renderFilterOptions(usageDashboard, selectedFilterId, select) {
+  if (!usageDashboard?.filters) {
+    return;
+  }
+
+  const nextOptions = usageDashboard.filters
+    .map(
+      (filter) =>
+        `<option value="${escapeHtml(filter.id)}">${escapeHtml(filter.label)}</option>`,
+    )
+    .join("");
+  if (select.innerHTML !== nextOptions) {
+    select.innerHTML = nextOptions;
+  }
+
+  select.value = selectedFilterId;
+}
+
+/**
+ * 渲染统计窗口面板。
+ *
+ * @param {any} usageDashboard 当前统计摘要。
+ * @param {Record<string, Element>} elements DOM 引用集合。
+ * @returns {void}
+ */
+export function renderUsagePanels(usageDashboard, elements) {
+  elements.usagePanels.innerHTML = "";
+  if (!usageDashboard) {
+    return;
+  }
+
+  for (const windowSummary of [
+    usageDashboard.cumulative,
+    usageDashboard.last5Hours,
+    usageDashboard.last7Days,
+  ]) {
+    const fragment = elements.usageWindowTemplate.content.cloneNode(true);
+    fragment.querySelector(".usage-window-title").textContent = windowSummary.label;
+    fragment.querySelector(".usage-metric-input").textContent = formatTokenCount(
+      windowSummary.totals.inputTokens,
+    );
+    fragment.querySelector(".usage-metric-cache").textContent = formatTokenCount(
+      windowSummary.totals.cachedInputTokens,
+    );
+    fragment.querySelector(".usage-metric-output").textContent = formatTokenCount(
+      windowSummary.totals.outputTokens,
+    );
+    fragment.querySelector(".usage-metric-cost").textContent = formatCurrency(
+      windowSummary.totals.estimatedCostUsd,
+    );
+    fragment.querySelector(".usage-window-meta").textContent = formatWindowMeta(
+      windowSummary,
+    );
+    elements.usagePanels.appendChild(fragment);
+  }
+}
+
+/**
+ * 渲染账号路由列表。
+ *
+ * @param {any[]} accounts 当前账号卡片数组。
+ * @param {Record<string, Element>} elements DOM 引用集合。
+ * @param {(accountId: string) => Promise<void>} onActivate 激活账号的动作。
+ * @returns {void}
+ */
+export function renderAccountRows(accounts, elements, onActivate) {
+  elements.accountsList.innerHTML = "";
+
+  if (accounts.length === 0) {
+    elements.accountsList.innerHTML =
+      '<div class="empty-state">还没有配置任何账号。</div>';
+    return;
+  }
+
+  for (const account of accounts) {
+    const fragment = elements.accountRowTemplate.content.cloneNode(true);
+    const root = fragment.querySelector(".account-row");
+    const activateButton = fragment.querySelector(".account-activate");
+    const health = fragment.querySelector(".health-pill");
+    const primaryUsage = account.officialUsage?.primary ?? null;
+    const secondaryUsage = account.officialUsage?.secondary ?? null;
+
+    root.dataset.active = account.isActive ? "true" : "false";
+    fragment.querySelector(".account-name").textContent = account.name;
+    fragment.querySelector(".account-kind").textContent = formatAccountKind(account.kind);
+    fragment.querySelector(".account-status").textContent = account.statusLabel;
+    fragment.querySelector(".account-diagnostics").textContent =
+      buildAccountDetailText(account);
+    fragment.querySelector(".account-total-tokens").textContent = formatTokenCount(
+      account.cumulativeUsage.totalTokens,
+    );
+    fragment.querySelector(".account-estimated-cost").textContent = formatCurrency(
+      account.cumulativeUsage.estimatedCostUsd,
+    );
+    fragment.querySelector(".account-primary-remaining").textContent = formatPercent(
+      primaryUsage?.remainingPercent ?? null,
+    );
+    fragment.querySelector(".account-primary-reset").textContent =
+      formatResetCountdown(primaryUsage?.resetsAt ?? null);
+    fragment.querySelector(".account-secondary-remaining").textContent = formatPercent(
+      secondaryUsage?.remainingPercent ?? null,
+    );
+    fragment.querySelector(".account-secondary-reset").textContent =
+      formatResetCountdown(secondaryUsage?.resetsAt ?? null);
+
+    health.textContent = translateHealth(account.health);
+    health.dataset.health = account.health;
+
+    activateButton.disabled = account.isActive;
+    activateButton.textContent = account.isActive ? "当前路由" : "切到这里";
+    activateButton.addEventListener("click", () => onActivate(account.id));
+
+    elements.accountsList.appendChild(fragment);
+  }
+}
+
+/**
+ * 渲染最近请求记录。
+ *
+ * @param {any[]} events 最近事件数组。
+ * @param {Record<string, Element>} elements DOM 引用集合。
+ * @returns {void}
+ */
+export function renderUsageEvents(events, elements) {
+  elements.eventsList.innerHTML = "";
+
+  if (!events.length) {
+    elements.eventsList.innerHTML =
+      '<div class="empty-state">当前筛选项下还没有代理请求记录。</div>';
+    return;
+  }
+
+  for (const event of events) {
+    const fragment = elements.eventRowTemplate.content.cloneNode(true);
+    fragment.querySelector(".event-model").textContent = event.model;
+    fragment.querySelector(".event-account").textContent = `${event.accountName} · ${formatAccountKind(event.accountKind)}`;
+    fragment.querySelector(".event-created-at").textContent = formatDateTime(
+      event.createdAt,
+    );
+    fragment.querySelector(".event-tokens").textContent = formatTokenCount(
+      event.totalTokens,
+    );
+    fragment.querySelector(".event-cost").textContent = formatCurrency(
+      event.estimatedCostUsd,
+    );
+    fragment.querySelector(".event-status").textContent = event.status;
+    elements.eventsList.appendChild(fragment);
+  }
+}
+
+/**
+ * 为避免 option 文本注入，手动转义 HTML。
+ *
+ * @param {string} value 原始文本。
+ * @returns {string}
+ */
+function escapeHtml(value) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+/**
+ * 将一段纯文本写入指定节点。
+ *
+ * @param {Element | null | undefined} element 目标节点。
+ * @param {string} value 文本值。
+ * @returns {void}
+ */
+function setTextContent(element, value) {
+  if (!element) {
+    return;
+  }
+
+  element.textContent = value;
+}
+
+/**
+ * 渲染统一样式的状态胶囊。
+ *
+ * @param {Element | null | undefined} element 目标节点。
+ * @param {string} text 展示文本。
+ * @param {string} state 状态名。
+ * @returns {void}
+ */
+function setStatusChip(element, text, state) {
+  if (!element) {
+    return;
+  }
+
+  element.textContent = text;
+  element.dataset.state = state;
+}
+
+/**
+ * 渲染一组纯文本列表项。
+ *
+ * @param {Element | null | undefined} container 列表容器。
+ * @param {string[]} items 列表文本。
+ * @returns {void}
+ */
+function renderTextList(container, items) {
+  if (!container) {
+    return;
+  }
+
+  container.innerHTML = items
+    .map((item) => `<li>${escapeHtml(item)}</li>`)
+    .join("");
+}
+
+/**
+ * 把代理客户端类型映射成 UI 胶囊颜色。
+ *
+ * @param {string | null} kind 客户端类型。
+ * @returns {string}
+ */
+function mapClientBadgeState(kind) {
+  if (kind === "codex") {
+    return "healthy";
+  }
+
+  if (kind === "browser") {
+    return "warning";
+  }
+
+  return "neutral";
+}
+
+/**
+ * 组合 Codex 代理监控需要展示的诊断文本。
+ *
+ * @param {any} codexProxy 当前 Codex 代理状态。
+ * @returns {string[]}
+ */
+function buildCodexProxyDiagnostics(codexProxy) {
+  const diagnostics = [...(codexProxy?.config?.diagnostics ?? [])];
+
+  if (codexProxy?.config?.isEnabled && !codexProxy?.isCodexTrafficRecent) {
+    diagnostics.push("配置已经切到本地代理，但最近还没有识别到 Codex 请求头。");
+  }
+
+  return diagnostics;
+}
+
+/**
+ * 为代理开关生成默认提示文案。
+ *
+ * @param {any} codexProxy 当前 Codex 代理状态。
+ * @returns {string}
+ */
+function buildDefaultProxyFeedback(codexProxy) {
+  if (!codexProxy?.config) {
+    return "等待后端返回 Codex 代理状态。";
+  }
+
+  if (codexProxy.config.isEnabled && codexProxy.isCodexTrafficRecent) {
+    return "配置已接管，最近也检测到了 Codex 请求经过本地代理。";
+  }
+
+  if (codexProxy.config.isEnabled) {
+    return "配置已接管。下一次新的 Codex 请求会开始经过这个本地代理。";
+  }
+
+  return `打开开关后，会把 model_provider 切到 ${codexProxy.config.providerName}。`;
+}
+
+/**
+ * 根据当前代理状态推断反馈区颜色。
+ *
+ * @param {any} codexProxy 当前 Codex 代理状态。
+ * @returns {string}
+ */
+function inferFeedbackTone(codexProxy) {
+  if (codexProxy?.config?.isEnabled && codexProxy?.isCodexTrafficRecent) {
+    return "success";
+  }
+
+  if (codexProxy?.config?.isEnabled) {
+    return "warning";
+  }
+
+  return "neutral";
+}
+
+/**
+ * 生成账号主信息区域的说明文案。
+ *
+ * @param {any} account 当前账号卡片对象。
+ * @returns {string}
+ */
+function buildAccountDetailText(account) {
+  if (account.rawDiagnostics[0]) {
+    return account.rawDiagnostics[0];
+  }
+
+  if (account.lastCheckedAt) {
+    return `最近检查：${formatDateTime(account.lastCheckedAt)}`;
+  }
+
+  return "等待首次检查。";
+}

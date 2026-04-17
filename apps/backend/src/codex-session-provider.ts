@@ -20,6 +20,7 @@ export interface CodexSession {
   email: string | null;
   userName: string | null;
   lastRefresh: string | null;
+  sourceFile?: string;
 }
 
 /**
@@ -34,10 +35,23 @@ export interface CodexSession {
  * @throws 当文件缺失、字段缺失或 token 非法时抛出异常。
  */
 export async function loadCodexSession(): Promise<CodexSession> {
-  const auth = await readJsonFile<RawAuthFile>(AUTH_FILE);
+  return loadCodexSessionFromFile(AUTH_FILE);
+}
+
+/**
+ * 从任意 `auth.json` 快照读取当前可用会话。
+ *
+ * @param authFile 登录态文件绝对路径。
+ * @returns 当前解析出的会话对象。
+ * @throws 当文件缺失、字段缺失或 token 非法时抛出异常。
+ */
+export async function loadCodexSessionFromFile(
+  authFile: string,
+): Promise<CodexSession> {
+  const auth = await readJsonFile<RawAuthFile>(authFile);
 
   if (!auth) {
-    throw new Error(`未找到 Codex 登录态文件：${AUTH_FILE}`);
+    throw new Error(`未找到 Codex 登录态文件：${authFile}`);
   }
 
   const accessToken = auth.tokens?.access_token;
@@ -67,5 +81,6 @@ export async function loadCodexSession(): Promise<CodexSession> {
     userName:
       typeof idTokenPayload?.name === "string" ? idTokenPayload.name : null,
     lastRefresh: auth.last_refresh ?? null,
+    sourceFile: authFile,
   };
 }

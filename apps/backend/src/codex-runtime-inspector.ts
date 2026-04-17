@@ -65,6 +65,12 @@ export async function isCodexBusy(): Promise<boolean> {
   try {
     logsText = await runSql(LOGS_SQLITE_FILE, sql);
   } catch (error) {
+    if (
+      formatError(error).includes("no such table: logs") ||
+      formatError(error).includes("unable to open database file")
+    ) {
+      return false;
+    }
     console.warn(`Codex 忙碌探测降级为空闲：${formatError(error)}`);
     return false;
   }

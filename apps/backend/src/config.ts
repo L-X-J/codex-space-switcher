@@ -7,12 +7,23 @@ import path from "node:path";
  */
 
 export const APP_NAME = "Codex Space Switcher";
-export const HOST = "127.0.0.1";
-export const PORT = 4318;
+export const HOST = process.env.CODEX_SPACE_SWITCHER_HOST ?? "127.0.0.1";
+export const PORT = Number.parseInt(
+  process.env.CODEX_SPACE_SWITCHER_PORT ?? "14318",
+  10,
+);
 export const API_BASE_URL = "https://chatgpt.com";
 export const DESKTOP_ORIGINATOR = "codex-desktop";
+export const SWITCH_BUSY_WAIT_TIMEOUT_MS = 15_000;
+export const OFFICIAL_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex";
+export const DEFAULT_THIRD_PARTY_BASE_URL = "https://api.openai.com/v1";
+export const GATEWAY_BASE_PATH = "/ai-router/api/v1";
+export const GATEWAY_PROVIDER_BASE_PATH = "/ai-router/api";
+export const MANAGED_CODEX_PROVIDER_NAME = "space_switcher";
+export const CODEX_PROXY_RECENT_WINDOW_MINUTES = 10;
 
 export const CODEX_HOME = path.join(os.homedir(), ".codex");
+export const CODEX_CONFIG_FILE = path.join(CODEX_HOME, "config.toml");
 export const DESKTOP_SUPPORT_HOME = path.join(
   os.homedir(),
   "Library",
@@ -26,6 +37,22 @@ export const SWITCHER_STATE_FILE = path.join(SWITCHER_HOME, "state.json");
 export const MANUAL_SPACES_FILE = path.join(
   SWITCHER_HOME,
   "manual-spaces.json",
+);
+export const GATEWAY_ACCOUNTS_FILE = path.join(
+  SWITCHER_HOME,
+  "accounts.json",
+);
+export const GATEWAY_STATE_FILE = path.join(
+  SWITCHER_HOME,
+  "gateway-state.json",
+);
+export const GATEWAY_USAGE_EVENTS_FILE = path.join(
+  SWITCHER_HOME,
+  "usage-events.jsonl",
+);
+export const CODEX_PROXY_CONTROL_STATE_FILE = path.join(
+  SWITCHER_HOME,
+  "codex-proxy-control.json",
 );
 
 export const AUTH_FILE = path.join(CODEX_HOME, "auth.json");

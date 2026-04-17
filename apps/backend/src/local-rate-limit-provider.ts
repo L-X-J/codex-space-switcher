@@ -59,10 +59,14 @@ export async function loadLatestRateLimitSnapshots(options?: {
     if (!snapshot || snapshot.kind === "unknown") {
       continue;
     }
+    const normalizedSnapshot = normalizeSnapshotForDisplay(snapshot);
 
-    const current = latestByKind.get(snapshot.kind);
-    if (!current || new Date(snapshot.capturedAt).getTime() > new Date(current.capturedAt).getTime()) {
-      latestByKind.set(snapshot.kind, snapshot);
+    const current = latestByKind.get(normalizedSnapshot.kind);
+    if (
+      !current ||
+      new Date(normalizedSnapshot.capturedAt).getTime() > new Date(current.capturedAt).getTime()
+    ) {
+      latestByKind.set(normalizedSnapshot.kind, normalizedSnapshot);
     }
   }
 
@@ -115,14 +119,13 @@ export function toQuotaSnapshot(
     hardLimit: current?.hardLimit ?? 100,
     softLimit: current?.softLimit ?? null,
     remaining:
-      current?.remaining ??
-      (snapshot.primary?.usedPercent !== null && snapshot.primary?.usedPercent !== undefined
+      snapshot.primary?.usedPercent !== null && snapshot.primary?.usedPercent !== undefined
         ? roundPercent(Math.max(100 - snapshot.primary.usedPercent, 0))
-        : null),
+        : current?.remaining ?? null,
     periodEndsAt:
-      current?.periodEndsAt ??
       snapshot.primary?.resetsAt ??
       snapshot.secondary?.resetsAt ??
+      current?.periodEndsAt ??
       null,
   };
 }
@@ -331,6 +334,59 @@ function parseBucket(bucket: Record<string, unknown> | null): RateLimitBucket | 
     usedPercent,
     windowMinutes,
     resetsAt,
+  };
+}
+
+/**
+ * 将已经过了重置时间的额度窗口归一化为“新窗口刚开始”的显示状态。
+ *
+ * @param snapshot 原始快照。
+ * @param now 用于比较是否过期的当前时间，默认取系统当前时间。
+ * @returns 适合 UI 展示的快照副本。
+ */
+export function normalizeSnapshotForDisplay(
+  snapshot: LocalRateLimitSnapshot,
+  now: Date = new Date(),
+): LocalRateLimitSnapshot {
+  return {
+    ...snapshot,
+    primary: normalizeBucketForDisplay(snapshot.primary, now),
+    secondary: normalizeBucketForDisplay(snapshot.secondary, now),
+  };
+}
+
+/**
+ * 将单个额度窗口归一化到“当前仍有效”的展示区间。
+ *
+ * @param bucket 原始额度窗口。
+ * @param now 当前时间。
+ * @returns 若窗口已经过期，则返回一个重置后的副本；否则原样返回。
+ */
+function normalizeBucketForDisplay(
+  bucket: RateLimitBucket | null,
+  now: Date,
+): RateLimitBucket | null {
+  if (!bucket || !bucket.resetsAt || bucket.windowMinutes === null) {
+    return bucket;
+  }
+
+  const resetsAtMs = new Date(bucket.resetsAt).getTime();
+  if (!Number.isFinite(resetsAtMs) || resetsAtMs > now.getTime()) {
+    return bucket;
+  }
+
+  const windowMs = bucket.windowMinutes * 60 * 1000;
+  if (!Number.isFinite(windowMs) || windowMs <= 0) {
+    return bucket;
+  }
+
+  const elapsedWindows = Math.floor((now.getTime() - resetsAtMs) / windowMs) + 1;
+  const nextResetsAtMs = resetsAtMs + elapsedWindows * windowMs;
+
+  return {
+    ...bucket,
+    usedPercent: 0,
+    resetsAt: new Date(nextResetsAtMs).toISOString(),
   };
 }
 

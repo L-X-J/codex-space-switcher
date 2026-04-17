@@ -1,7 +1,7 @@
 import type { DashboardStatus, ServerEvent, SpaceCard, SwitchHint } from "../../../packages/shared/src/index.ts";
-import { SWITCH_CANDIDATES } from "./config.ts";
+import { SWITCH_BUSY_WAIT_TIMEOUT_MS, SWITCH_CANDIDATES } from "./config.ts";
 import { loadCodexSession } from "./codex-session-provider.ts";
-import { inspectCodexRuntime, isCodexBusy, startCodexApp, stopCodexApp } from "./codex-runtime-inspector.ts";
+import { isCodexBusy, startCodexApp, stopCodexApp } from "./codex-runtime-inspector.ts";
 import { callInternalApi } from "./internal-api-client.ts";
 import { log } from "./logger.ts";
 import { createIdleSwitchJob, savePersistedState } from "./state-store.ts";
@@ -16,6 +16,28 @@ interface SwitchContext {
   reloadSpaces: () => Promise<SpaceCard[]>;
 }
 
+interface SwitchExecutionAdapter {
+  isCodexBusy: typeof isCodexBusy;
+  loadCodexSession: typeof loadCodexSession;
+  callInternalApi: typeof callInternalApi;
+  stopCodexApp: typeof stopCodexApp;
+  startCodexApp: typeof startCodexApp;
+  sleep: typeof sleep;
+}
+
+interface SwitchServiceOptions {
+  adapter?: SwitchExecutionAdapter;
+  busyWaitTimeoutMs?: number;
+}
+
+interface SwitchAttemptDiagnostic {
+  method: string;
+  path: string;
+  status: number;
+  ok: boolean;
+  note: string;
+}
+
 /**
  * 本文件实现空间切换队列与编排流程。
  * 设计重点是把“切换中”“等待空闲”“自动重启”“切换后校验”都纳入一条串行流程中，避免多个点击并发冲突。
@@ -28,7 +50,24 @@ export class SpaceSwitchService {
 
   private processing = false;
 
-  constructor(private readonly context: SwitchContext) {}
+  private readonly adapter: SwitchExecutionAdapter;
+
+  private readonly busyWaitTimeoutMs: number;
+
+  constructor(
+    private readonly context: SwitchContext,
+    options: SwitchServiceOptions = {},
+  ) {
+    this.adapter = options.adapter ?? {
+      isCodexBusy,
+      loadCodexSession,
+      callInternalApi,
+      stopCodexApp,
+      startCodexApp,
+      sleep,
+    };
+    this.busyWaitTimeoutMs = options.busyWaitTimeoutMs ?? SWITCH_BUSY_WAIT_TIMEOUT_MS;
+  }
 
   /**
    * 订阅切换与状态相关的 SSE 事件。
@@ -178,10 +217,10 @@ export class SpaceSwitchService {
       },
     });
 
-    await stopCodexApp();
-    await sleep(1200);
-    await startCodexApp();
-    await sleep(2000);
+    await this.adapter.stopCodexApp();
+    await this.adapter.sleep(1200);
+    await this.adapter.startCodexApp();
+    await this.adapter.sleep(2000);
 
     await this.updateSwitchJob("verifying", target, "Codex Desktop 已重启，正在校验新空间是否生效。");
     const refreshedSpaces = await this.context.reloadSpaces();
@@ -225,13 +264,21 @@ export class SpaceSwitchService {
    * @returns 无返回值。
    */
   private async waitUntilIdle(target: SpaceCard): Promise<void> {
-    while (await isCodexBusy()) {
+    const startedAt = Date.now();
+
+    while (await this.adapter.isCodexBusy()) {
+      if (Date.now() - startedAt >= this.busyWaitTimeoutMs) {
+        throw new Error(
+          `Codex Desktop 持续忙碌超过 ${Math.round(this.busyWaitTimeoutMs / 1000)} 秒，已取消本次自动切换。请等待当前任务结束后再试。`,
+        );
+      }
+
       await this.updateSwitchJob(
         "queued",
         target,
-        "Codex 当前仍有活跃任务，切换请求已排队，等待空闲后继续。",
+        `Codex 当前仍有活跃任务，切换请求已排队，等待空闲后继续。最多等待 ${Math.round(this.busyWaitTimeoutMs / 1000)} 秒。`,
       );
-      await sleep(2500);
+      await this.adapter.sleep(2500);
     }
   }
 
@@ -243,13 +290,23 @@ export class SpaceSwitchService {
    * @throws 当所有切换候选都失败时抛出异常。
    */
   private async trySwitchTarget(target: SpaceCard): Promise<void> {
-    const session = await loadCodexSession();
+    const session = await this.adapter.loadCodexSession();
     const explicitHints = this.collectSwitchHints(target);
+    const diagnostics: SwitchAttemptDiagnostic[] = [];
 
     for (const hint of explicitHints) {
-      const response = await callInternalApi(session, hint.path, {
+      const response = await this.adapter.callInternalApi(session, hint.path, {
         method: hint.method,
         body: JSON.stringify(hint.body),
+      });
+      diagnostics.push({
+        method: hint.method,
+        path: hint.path,
+        status: response.status,
+        ok: response.ok,
+        note: response.ok
+          ? "显式切换提示调用成功。"
+          : `显式切换提示失败：${response.rawText.slice(0, 160)}`,
       });
 
       if (response.ok) {
@@ -262,11 +319,20 @@ export class SpaceSwitchService {
     }
 
     for (const candidate of SWITCH_CANDIDATES) {
-      const response = await callInternalApi(session, candidate.path, {
+      const response = await this.adapter.callInternalApi(session, candidate.path, {
         method: candidate.method,
         body: JSON.stringify({
           [candidate.bodyKey]: target.id,
         }),
+      });
+      diagnostics.push({
+        method: candidate.method,
+        path: candidate.path,
+        status: response.status,
+        ok: response.ok,
+        note: response.ok
+          ? "默认切换候选调用成功。"
+          : `默认切换候选失败：${response.rawText.slice(0, 160)}`,
       });
 
       if (response.ok) {
@@ -279,9 +345,7 @@ export class SpaceSwitchService {
       }
     }
 
-    throw new Error(
-      `所有切换候选均失败，目标空间 ${target.name} (${target.id}) 当前无法自动切换。`,
-    );
+    throw new Error(this.buildUnsupportedSwitchMessage(target, diagnostics));
   }
 
   /**
@@ -389,5 +453,33 @@ export class SpaceSwitchService {
     for (const listener of this.listeners) {
       listener(event);
     }
+  }
+
+  /**
+   * 生成一次自动切换失败的最终说明。
+   *
+   * @param target 目标空间。
+   * @param diagnostics 本次尝试过的接口诊断。
+   * @returns 适合直接展示给用户的失败文案。
+   */
+  private buildUnsupportedSwitchMessage(
+    target: SpaceCard,
+    diagnostics: SwitchAttemptDiagnostic[],
+  ): string {
+    const attemptsText =
+      diagnostics.length === 0
+        ? "本次没有发现任何可执行的切换提示。"
+        : diagnostics
+            .map(
+              (item) =>
+                `${item.method} ${item.path} -> ${item.status}（${item.note}）`,
+            )
+            .join("；");
+
+    return [
+      `当前版本尚未找到可用的 Codex Desktop 自动切换机制，因此无法把本地登录态直接切到 ${target.name}。`,
+      "这不是前端按钮问题，而是桌面端当前登录 token 仍然绑定在原空间上。",
+      `已验证的切换候选：${attemptsText}`,
+    ].join(" ");
   }
 }

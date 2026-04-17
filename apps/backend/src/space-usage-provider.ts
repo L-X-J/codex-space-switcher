@@ -659,15 +659,7 @@ function shouldApplyLocalUsage(
   current: UsageSnapshot | null,
   incoming: UsageSnapshot | null,
 ): boolean {
-  if (!incoming) {
-    return false;
-  }
-
-  if (!current) {
-    return true;
-  }
-
-  return current.used === null || current.limit === null || current.remaining === null;
+  return incoming !== null;
 }
 
 /**
@@ -693,7 +685,7 @@ function mergeQuotaSummaries(
     label: current.label ?? incoming.label,
     hardLimit: current.hardLimit ?? incoming.hardLimit,
     softLimit: current.softLimit ?? incoming.softLimit,
-    remaining: current.remaining ?? incoming.remaining,
+    remaining: incoming.remaining ?? current.remaining,
     periodEndsAt: incoming.periodEndsAt ?? current.periodEndsAt,
   };
 }

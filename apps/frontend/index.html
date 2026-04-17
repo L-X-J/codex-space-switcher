@@ -7,114 +7,330 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <div class="shell">
-      <header class="hero">
-        <div class="hero-copy">
-          <p class="eyebrow">Local Control Plane</p>
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="brand-lockup">
+          <p class="eyebrow">Local Gateway</p>
           <h1>Codex Space Switcher</h1>
-          <p class="hero-text">
-            在一个本机控制台里追踪 Plus 与 Team 的额度、可用性和切换队列，让 Codex Desktop 在该切的时候自己切。
-          </p>
-          <div class="hero-actions">
-            <button id="refreshButton" class="primary-button">立即刷新状态</button>
-            <span id="connectionBadge" class="inline-badge">连接中</span>
-          </div>
         </div>
-        <div class="hero-orbit">
-          <div class="orbit-ring orbit-ring-large"></div>
-          <div class="orbit-ring orbit-ring-small"></div>
-          <div class="orbit-core">
-            <span>Codex</span>
-            <strong id="activeSpaceLabel">未识别空间</strong>
-          </div>
+        <div class="header-actions">
+          <span id="connectionBadge" class="connection-badge">连接中</span>
+          <button id="refreshButton" class="refresh-button">刷新</button>
         </div>
       </header>
 
       <main class="workspace">
-        <section class="status-strip">
-          <article class="status-panel">
-            <p class="panel-label">当前激活空间</p>
-            <h2 id="statusActiveName">加载中</h2>
-            <p id="statusLastSwitch" class="muted-text">尚无切换记录</p>
-          </article>
-          <article class="status-panel">
-            <p class="panel-label">Codex Desktop 运行状态</p>
-            <h2 id="statusRuntime">加载中</h2>
-            <p id="statusRuntimeDetail" class="muted-text"></p>
-          </article>
-          <article class="status-panel">
-            <p class="panel-label">切换队列</p>
-            <h2 id="statusSwitchStage">空闲</h2>
-            <p id="statusSwitchMessage" class="muted-text"></p>
-          </article>
-        </section>
+        <nav class="page-nav" aria-label="控制台分页">
+          <button
+            class="page-tab"
+            type="button"
+            data-page-target="proxy"
+            data-active="true"
+          >
+            <span class="page-tab-index">Page 1</span>
+            <span class="page-tab-label">Codex 代理接管</span>
+          </button>
+          <button
+            class="page-tab"
+            type="button"
+            data-page-target="accounts"
+            data-active="false"
+          >
+            <span class="page-tab-index">Page 2</span>
+            <span class="page-tab-label">账号与路由</span>
+          </button>
+          <button
+            class="page-tab"
+            type="button"
+            data-page-target="usage"
+            data-active="false"
+          >
+            <span class="page-tab-index">Page 3</span>
+            <span class="page-tab-label">统计</span>
+          </button>
+        </nav>
 
-        <section class="token-section">
-          <div class="section-heading">
-            <p class="eyebrow">Token Usage</p>
-            <h2>Token 用量</h2>
-          </div>
-          <div class="token-grid">
-            <article class="status-panel token-panel">
-              <p class="panel-label">今日总 Token</p>
-              <h2 id="tokenTodayTotal">0</h2>
-              <p id="tokenTodayDetail" class="muted-text">等待本地会话扫描</p>
-            </article>
-            <article class="status-panel token-panel">
-              <p class="panel-label">近 7 天 Token</p>
-              <h2 id="tokenWeekTotal">0</h2>
-              <p id="tokenWeekDetail" class="muted-text">等待本地会话扫描</p>
-            </article>
-            <article class="status-panel token-panel">
-              <p class="panel-label">当前空间今日 Token</p>
-              <h2 id="tokenActiveTotal">0</h2>
-              <p id="tokenActiveDetail" class="muted-text">等待空间识别</p>
-            </article>
-          </div>
-          <article class="status-panel token-latest-panel">
-            <p class="panel-label">最近一次 Rollout</p>
-            <h2 id="tokenLatestMeta">尚未读取到本地会话</h2>
-            <p id="tokenBreakdown" class="muted-text">
-              输入 0 · 缓存 0 · 输出 0 · 推理 0
-            </p>
-          </article>
-        </section>
+        <div id="pageStage" class="page-stage">
+          <div id="pageTrack" class="page-track">
+            <section class="page-view" data-page="proxy" data-active="true" aria-hidden="false">
+              <section class="status-band">
+                <div class="status-grid">
+                  <article class="summary-panel">
+                    <p class="panel-label">当前激活账号</p>
+                    <h2 id="activeAccountName">加载中</h2>
+                    <p id="activeAccountDetail" class="muted-text">等待账号状态</p>
+                  </article>
+                  <article class="summary-panel">
+                    <p class="panel-label">本地代理入口</p>
+                    <h2 id="gatewayBaseUrl">加载中</h2>
+                    <p id="gatewayRoutePath" class="muted-text">/ai-router/api/responses</p>
+                  </article>
+                  <article class="summary-panel">
+                    <p class="panel-label">最近一次请求</p>
+                    <h2 id="lastRequestAt">--</h2>
+                    <p id="lastRequestModel" class="muted-text">等待模型请求</p>
+                    <p id="lastRequestDetail" class="muted-text">还没有代理请求</p>
+                  </article>
+                </div>
+              </section>
 
-        <section class="spaces-section">
-          <div class="section-heading">
-            <p class="eyebrow">Spaces</p>
-            <h2>空间卡片</h2>
+              <section class="section-band">
+                <div class="section-heading section-heading-inline">
+                  <div>
+                    <p class="eyebrow">Codex Proxy</p>
+                    <h2>Codex 代理接管</h2>
+                    <p class="section-caption">
+                      开关会直接改写 ~/.codex/config.toml，并持续监控最近是否真的有 Codex 请求走到本地代理。
+                    </p>
+                  </div>
+                  <label class="toggle-control" for="codexProxyToggle">
+                    <span class="toggle-copy">
+                      <span class="toggle-label">让 Codex 走本地代理</span>
+                      <span id="codexProxyToggleHint" class="toggle-hint">未接管</span>
+                    </span>
+                    <span class="toggle-shell">
+                      <input
+                        id="codexProxyToggle"
+                        class="toggle-input"
+                        type="checkbox"
+                        aria-label="切换 Codex 本地代理接管"
+                      />
+                      <span class="toggle-track" aria-hidden="true"></span>
+                    </span>
+                  </label>
+                </div>
+
+                <article class="proxy-panel">
+                  <div class="proxy-overview-grid">
+                    <div class="proxy-overview-item">
+                      <span class="metric-label">配置接管</span>
+                      <strong id="codexProxyConfigBadge" class="status-chip">读取中</strong>
+                      <p class="muted-text">检查当前 model_provider 是否已切到 space_switcher</p>
+                    </div>
+                    <div class="proxy-overview-item">
+                      <span class="metric-label">最近 Codex 流量</span>
+                      <strong id="codexProxyTrafficBadge" class="status-chip">读取中</strong>
+                      <p class="muted-text">依据最近代理请求头特征，判断是否像真实 Codex 流量</p>
+                    </div>
+                    <div class="proxy-overview-item">
+                      <span class="metric-label">最近代理客户端</span>
+                      <strong id="codexProxyClientBadge" class="status-chip">读取中</strong>
+                      <p class="muted-text">帮助快速区分是 Codex、浏览器、curl 还是其他客户端</p>
+                    </div>
+                  </div>
+
+                  <div class="proxy-detail-grid">
+                    <div class="proxy-detail-list">
+                      <div class="proxy-detail-row">
+                        <span class="proxy-detail-term">配置文件</span>
+                        <strong id="codexProxyConfigPath" class="proxy-detail-value">--</strong>
+                      </div>
+                      <div class="proxy-detail-row">
+                        <span class="proxy-detail-term">当前 model_provider</span>
+                        <strong id="codexProxyCurrentProvider" class="proxy-detail-value">--</strong>
+                      </div>
+                      <div class="proxy-detail-row">
+                        <span class="proxy-detail-term">当前 provider base_url</span>
+                        <strong id="codexProxyCurrentBaseUrl" class="proxy-detail-value">--</strong>
+                      </div>
+                      <div class="proxy-detail-row">
+                        <span class="proxy-detail-term">期望 provider</span>
+                        <strong id="codexProxyExpectedProvider" class="proxy-detail-value">--</strong>
+                      </div>
+                    </div>
+
+                    <div class="proxy-detail-list">
+                      <div class="proxy-detail-row">
+                        <span class="proxy-detail-term">受管 provider base_url</span>
+                        <strong id="codexProxyManagedBaseUrl" class="proxy-detail-value">--</strong>
+                      </div>
+                      <div class="proxy-detail-row">
+                        <span class="proxy-detail-term">期望本地代理地址</span>
+                        <strong id="codexProxyExpectedBaseUrl" class="proxy-detail-value">--</strong>
+                      </div>
+                      <div class="proxy-detail-row">
+                        <span class="proxy-detail-term">最近 Codex 请求</span>
+                        <strong id="codexProxyLastCodexRequestAt" class="proxy-detail-value">--</strong>
+                      </div>
+                      <div class="proxy-detail-row">
+                        <span class="proxy-detail-term">最近任意代理请求</span>
+                        <strong id="codexProxyLastProxyRequestAt" class="proxy-detail-value">--</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="proxy-footer">
+                    <div>
+                      <p class="panel-label">诊断</p>
+                      <ul id="codexProxyDiagnostics" class="diagnostics-list">
+                        <li>等待后端返回诊断信息。</li>
+                      </ul>
+                    </div>
+                    <p id="codexProxyFeedback" class="proxy-feedback" data-tone="neutral">
+                      等待后端返回 Codex 代理状态。
+                    </p>
+                  </div>
+                </article>
+              </section>
+            </section>
+
+            <section class="page-view" data-page="accounts" data-active="false" aria-hidden="true">
+              <section class="section-band">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Accounts</p>
+                    <h2>账号与路由</h2>
+                    <p class="section-caption">
+                      统一比较累计 Token、5 小时剩余、近一周剩余和当前路由状态，不再区分官方卡片与路由列表。
+                    </p>
+                  </div>
+                </div>
+
+                <div class="account-board">
+                  <div class="account-board-head" aria-hidden="true">
+                    <span>账号</span>
+                    <span>状态</span>
+                    <span>累计 Token</span>
+                    <span>5 小时剩余</span>
+                    <span>近一周剩余</span>
+                    <span>路由</span>
+                  </div>
+                  <div id="accountsList" class="account-list"></div>
+                </div>
+              </section>
+            </section>
+
+            <section class="page-view" data-page="usage" data-active="false" aria-hidden="true">
+              <section class="section-band">
+                <div class="section-heading section-heading-inline">
+                  <div>
+                    <p class="eyebrow">Usage</p>
+                    <h2>筛选统计</h2>
+                    <p class="section-caption">
+                      查看筛选后的输入 Token、Cache Token、输出 Token 与官方口径估算费用。
+                    </p>
+                  </div>
+                  <div class="toolbar">
+                    <label class="filter-label" for="usageFilterSelect">筛选账号</label>
+                    <select id="usageFilterSelect" class="filter-select"></select>
+                  </div>
+                </div>
+                <div id="usagePanels" class="usage-window-grid"></div>
+              </section>
+
+              <section class="section-band">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Recent</p>
+                    <h2>最近请求</h2>
+                    <p class="section-caption">
+                      最近代理请求会跟随当前筛选项同步变化，方便核对统计来源。
+                    </p>
+                  </div>
+                </div>
+                <div id="eventsList" class="event-list"></div>
+              </section>
+            </section>
           </div>
-          <div id="spacesGrid" class="spaces-grid"></div>
-        </section>
+        </div>
       </main>
     </div>
 
-    <template id="spaceCardTemplate">
-      <article class="space-card">
-        <div class="space-card-header">
-          <div>
-            <p class="space-kind"></p>
-            <h3 class="space-name"></h3>
-          </div>
-          <span class="space-health"></span>
+    <template id="usageWindowTemplate">
+      <article class="usage-window">
+        <div class="card-header">
+          <p class="card-title usage-window-title"></p>
         </div>
-        <div class="space-metrics">
-          <div>
-            <p class="metric-label">周额度已用</p>
-            <strong class="metric-usage">--</strong>
+        <div class="usage-metrics-grid">
+          <div class="metric-block">
+            <span class="metric-label">输入 Token</span>
+            <strong class="metric-value usage-metric-input"></strong>
           </div>
-          <div>
-            <p class="metric-label">5 小时剩余</p>
-            <strong class="metric-remaining">--</strong>
+          <div class="metric-block">
+            <span class="metric-label">Cache Token</span>
+            <strong class="metric-value usage-metric-cache"></strong>
+          </div>
+          <div class="metric-block">
+            <span class="metric-label">输出 Token</span>
+            <strong class="metric-value usage-metric-output"></strong>
+          </div>
+          <div class="metric-block">
+            <span class="metric-label">预计费用</span>
+            <strong class="metric-value usage-metric-cost"></strong>
           </div>
         </div>
-        <div class="space-footnote">
-          <p class="metric-label">最近刷新</p>
-          <p class="space-checked-at"></p>
+        <p class="card-footnote usage-window-meta"></p>
+      </article>
+    </template>
+
+    <template id="accountRowTemplate">
+      <article class="account-row">
+        <div class="account-cell account-cell-primary">
+          <span class="metric-label">账号</span>
+          <div class="account-main">
+            <p class="card-title account-name"></p>
+            <p class="account-diagnostics muted-text"></p>
+          </div>
         </div>
-        <p class="space-diagnostics"></p>
-        <button class="switch-button">切换到此空间</button>
+        <div class="account-cell account-cell-status">
+          <span class="metric-label">状态</span>
+          <div class="account-status-stack">
+            <div class="account-inline-meta">
+              <span class="account-kind"></span>
+              <span class="health-pill"></span>
+            </div>
+            <p class="account-status muted-text"></p>
+          </div>
+        </div>
+        <div class="account-cell">
+          <span class="metric-label">累计 Token</span>
+          <div class="summary-stat">
+            <strong class="metric-value account-total-tokens"></strong>
+            <span class="metric-footnote account-estimated-cost"></span>
+          </div>
+        </div>
+        <div class="account-cell">
+          <span class="metric-label">5 小时剩余</span>
+          <div class="summary-stat">
+            <strong class="metric-value account-primary-remaining"></strong>
+            <span class="metric-footnote account-primary-reset"></span>
+          </div>
+        </div>
+        <div class="account-cell">
+          <span class="metric-label">近一周剩余</span>
+          <div class="summary-stat">
+            <strong class="metric-value account-secondary-remaining"></strong>
+            <span class="metric-footnote account-secondary-reset"></span>
+          </div>
+        </div>
+        <div class="account-cell account-cell-action">
+          <span class="metric-label">路由</span>
+          <button class="account-activate">切到这里</button>
+        </div>
+      </article>
+    </template>
+
+    <template id="eventRowTemplate">
+      <article class="event-row">
+        <div class="event-main">
+          <p class="card-title event-model"></p>
+          <p class="muted-text event-account"></p>
+          <p class="muted-text event-created-at"></p>
+        </div>
+        <div class="event-metrics">
+          <div class="summary-stat">
+            <span class="metric-label">总 Token</span>
+            <strong class="metric-value event-tokens"></strong>
+          </div>
+          <div class="summary-stat">
+            <span class="metric-label">预计费用</span>
+            <strong class="metric-value event-cost"></strong>
+          </div>
+          <div class="summary-stat">
+            <span class="metric-label">状态</span>
+            <strong class="metric-value event-status"></strong>
+          </div>
+        </div>
       </article>
     </template>
 

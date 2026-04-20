@@ -1,84 +1,144 @@
 # Codex Space Switcher
 
-`Codex Space Switcher` 现在不再把“切换账号”押宝在改 Codex Desktop 当前登录态上，而是改成了一个本地优先的薄网关控制台：
+一个面向 Codex Desktop 的本地账号路由与用量审计控制台。
 
-- 当前激活账号由本地代理承接 `/responses`
-- 官方账号直接拉取实时额度窗口
-- 官方账号与第三方 API 账号统一出现在一个看板里
-- 所有代理请求都会记录 token 与费用事件，支持筛选统计
+`Codex Space Switcher` 不是去劫持或反复切换 Codex Desktop 当前登录态，而是在本机前面放一个薄网关，把“请求由哪个账号承接”“最近是谁在消耗额度”“当前 Codex 是否真的走了本地代理”这些问题收敛到一个明确、可观测的控制面里。
 
-这版的核心目标很直接：让账号切换更稳，让用量统计能落到“具体账号”而不是只停留在 Plus / Team 空间级别。
+![Codex Space Switcher](docs/screenshots/hero.png)
 
-## 现在能做什么
+## 项目定位
 
-- 提供本地 `/ai-router/api/responses` 与 `/ai-router/api/models`
-- 同时兼容 `/ai-router/api/v1/responses` 与 `/ai-router/api/v1/models`
-- 支持当前官方登录态自动接入，并优先显示真实用户名 / 邮箱
-- 支持额外配置多个官方账号快照
-- 支持直接粘贴 `https://chatgpt.com/api/auth/session` 返回结果来新增官方账号
-- 支持接入第三方 OpenAI-compatible API
-- 展示官方账号状态看板：
-  - 账号健康状态
-  - 累计 token / 累计费用
-  - 最近 5 小时剩余额度
-  - 最近一周剩余额度
-- 提供筛选统计：
-  - 全部账号
-  - 全部官方账号
-  - 全部第三方账号
-  - 单个官方账号 / 单个第三方账号
-- 筛选后查看：
-  - 输入 token
-  - cache token
-  - 输出 token
-  - 预计费用（按官方公开费率估算）
-- 保存最近代理事件，支持最近请求列表查看
+在重度使用 Codex Desktop 时，真正容易失控的通常不是请求能不能发出去，而是下面这些边界问题：
 
-## 架构思路
+- 官方账号和第三方 OpenAI-compatible API 混用后，很难确认当前流量到底走了谁
+- 账号切换依赖桌面端当前登录态，切换路径脆弱，排查成本高
+- 用量信息常常只停留在空间或平台层，难以落到具体账号
+- 接入本地代理之后，转发能力有了，但运行状态和审计信息反而更难看清
 
-当前版本由三层组成：
+这个项目的目标很直接：
 
-1. 本地控制台页面
-   展示账号状态、筛选统计和最近请求。
-2. 本地薄网关
-   只承担当前激活账号的 `/responses` 代理和模型列表暴露。
-3. 本地审计事件
-   把代理过程中捕获到的 token / cache / output / 费用落盘，再用于统计聚合。
+**用一个本地优先的薄网关，把 Codex 的账号切换、代理接管、额度观察和 usage 审计统一起来。**
 
-这意味着账号切换只是切换“本地代理当前激活账号”，不再要求去改 Codex Desktop 自己的登录空间。
+## 核心特性
 
-## 项目结构
+### 本地路由优先，而不是桌面登录态优先
+
+项目当前主路径不是“切换 Codex Desktop 当前账号”，而是“切换本地网关当前激活账号”。
+
+这意味着：
+
+- Codex 请求先进入本地代理
+- 本地代理决定当前由哪个账号承接
+- 账号切换变成显式的本地路由切换，而不是隐式的桌面端状态切换
+
+这样做的价值在于，切换行为更稳定，故障边界更清晰，也更容易定位到底是代理问题、账号问题，还是桌面端配置问题。
+
+### 官方账号与第三方账号统一管理
+
+项目不是只做官方账号切换，也不是单纯做第三方 API 聚合。
+
+它把两类账号统一抽象成“可被本地网关激活的运行目标”，并在同一个控制台里展示：
+
+- 当前激活状态
+- 账号健康状态
+- 最近请求情况
+- 累计 token
+- 累计费用
+- 官方账号额度窗口
+
+### 用量统计落到账号维度
+
+所有经过本地代理的请求，都会转成可聚合的本地 usage 事件。
+
+控制台当前支持查看：
+
+- 输入 token
+- cache token
+- 输出 token
+- 估算费用
+- 最近请求列表
+- 全部 / 官方 / 第三方 / 单账号筛选
+
+这让你看到的不再只是“某个空间快到上限了”，而是“具体哪个账号在消耗资源”。
+
+### 薄网关设计，不做重型平台
+
+这个项目有意保持协议面收敛，不把自己做成一个复杂的中台或通用网关。
+
+当前重点集中在：
+
+- `/responses`
+- `/models`
+- WebSocket upgrade 透传
+- 账号路由
+- 本地 usage 审计
+
+这不是能力不足，而是设计选择。边界清晰，反而更适合本地部署和长期维护。
+
+## 功能概览
+
+- 本地控制台：
+  - 查看账号状态
+  - 查看代理状态
+  - 查看最近请求
+  - 查看 token 与费用统计
+- 本地代理：
+  - `POST /ai-router/api/responses`
+  - `GET /ai-router/api/models`
+  - 兼容 `/ai-router/api/v1/*`
+- 官方账号支持：
+  - 自动识别当前 `~/.codex/auth.json`
+  - 支持维护多个官方账号快照
+  - 支持直接粘贴 `https://chatgpt.com/api/auth/session` 返回结果创建账号
+- 第三方账号支持：
+  - 接入 OpenAI-compatible API
+  - 创建时可选 `/models` 可用性校验
+- Codex 接管能力：
+  - 可直接管理 `~/.codex/config.toml`
+  - 展示当前 provider 与受管 provider 配置
+  - 检测最近 Codex 流量是否真实经过本地代理
+- 本地用量审计：
+  - token 统计
+  - cache token 统计
+  - output token 统计
+  - 费用估算
+  - 最近请求历史
+
+## 截图
+
+### 账号与代理状态面板
+
+![账号与代理状态面板](docs/screenshots/spaces.png)
+
+### Token 与费用统计面板
+
+![Token 与费用统计面板](docs/screenshots/token-usage.png)
+
+## 工作方式
 
 ```text
-codex-space-switcher/
-├── apps/
-│   ├── backend/
-│   │   └── src/
-│   │       ├── gateway-account-store.ts
-│   │       ├── gateway-dashboard-service.ts
-│   │       ├── gateway-proxy-service.ts
-│   │       ├── official-account-usage-provider.ts
-│   │       ├── response-usage-capture.ts
-│   │       ├── usage-dashboard-provider.ts
-│   │       ├── usage-event-store.ts
-│   │       └── server.ts
-│   └── frontend/
-│       ├── app.js
-│       ├── index.html
-│       ├── styles.css
-│       └── lib/
-│           ├── api.js
-│           ├── formatters.js
-│           └── render.js
-├── packages/
-│   └── shared/
-│       └── src/
-│           ├── contracts.ts
-│           └── index.ts
-└── README.md
+Codex Desktop
+    |
+    v
+本地薄网关
+    |
+    +--> 当前激活的官方账号
+    |
+    +--> 当前激活的第三方账号
+    |
+    +--> 本地 usage 事件存储
+             |
+             v
+          控制台聚合展示
 ```
 
-## 本地启动
+当前实现可以理解为三层：
+
+1. 控制台前端：负责状态展示、账号管理和操作入口
+2. 本地薄网关：负责 `/responses`、`/models`、WebSocket upgrade 与账号路由
+3. 本地状态与审计存储：负责账号定义、代理状态、Codex 接管状态和 usage 事件持久化
+
+## 快速开始
 
 ### 环境要求
 
@@ -86,45 +146,48 @@ codex-space-switcher/
 - Node.js `24+`
 - 已安装 Codex Desktop
 
-### 启动命令
+### 启动
 
 ```bash
-cd /Users/cxl/cxl_projects/codex-space-switcher
+npm install
 npm run dev
 ```
 
-启动后访问：
+默认地址：
 
-- `http://127.0.0.1:14318`
+- 控制台：`http://127.0.0.1:14318`
+- 代理入口：`http://127.0.0.1:14318/ai-router/api/responses`
+- 模型列表：`http://127.0.0.1:14318/ai-router/api/models`
 
-本地代理入口：
+## 接入 Codex Desktop
 
-- `http://127.0.0.1:14318/ai-router/api/responses`
-- `http://127.0.0.1:14318/ai-router/api/models`
-- `http://127.0.0.1:14318/ai-router/api` 可直接在浏览器里查看网关根路径说明
+如果你希望 Codex Desktop 通过本地代理发请求，可以把 provider 指向本地服务：
+
+```toml
+model_provider = "space_switcher"
+
+[model_providers.space_switcher]
+name = "space_switcher"
+base_url = "http://127.0.0.1:14318/ai-router/api"
+wire_api = "responses"
+requires_openai_auth = true
+```
+
+控制台里也提供了接管入口，可以直接改写 `~/.codex/config.toml`，并展示：
+
+- 当前 `model_provider`
+- 当前 provider 的 `base_url`
+- 受管 provider 的 `base_url`
+- 最近 10 分钟是否检测到 Codex 流量经过本地代理
 
 ## 账号配置
 
-默认情况下，服务会自动把当前 `~/.codex/auth.json` 识别成一个官方账号，并优先显示 `auth.json` 中解析出的真实用户名、邮箱或账号 ID；只有这些信息都缺失时，才回退到内置 ID。
+默认情况下，服务会自动把当前 `~/.codex/auth.json` 识别成一个官方账号。
 
-如果你要接入多个官方账号或第三方 API，可以提供：
+如果你要接入多个官方账号或第三方账号，可以通过以下两种方式配置：
 
+- 控制台里的新增账号表单
 - `CODEX_SPACE_SWITCHER_HOME/accounts.json`
-
-现在控制台页面也支持直接新增账号：
-
-- 官方账号：访问 `https://chatgpt.com/api/auth/session`，把完整 JSON 粘贴到“新增官方账号”表单
-- 第三方账号：填写名称、API Key、URL，保存前会先请求一次 `/models` 做可用性测试；若中转站未实现该接口，可再次确认后跳过这一步
-
-其中官方账号的 `/api/auth/session` 返回结果可以直接用，但当前项目只会提取：
-
-- `accessToken`
-- `account.id`
-- `user.name`
-- `user.email`
-- `expires`
-
-也就是说，它足够支撑本地代理转发与额度查询；但因为这里没有 `refresh_token`，所以过期后需要重新粘贴一次登录态。
 
 示例：
 
@@ -150,86 +213,54 @@ npm run dev
 }
 ```
 
-### 多官方账号怎么准备
+### 多官方账号接入方式
 
-当前版本不接管网页登录流程，多官方账号依赖你自己保留不同账号的 `auth.json` 快照。
+常见做法有两种：
 
-如果你不想自己手动保存 `auth.json`，也可以直接用前端“新增官方账号”里的粘贴方式。保存后，项目会把 `/api/auth/session` 精简成只包含必要字段的本地快照文件，再写入 `accounts.json`。
+1. 保存多个 `auth.json` 快照，并在 `accounts.json` 中分别引用
+2. 直接把 `https://chatgpt.com/api/auth/session` 的返回结果粘贴到控制台
 
-一个常见做法是：
+当前项目只会从粘贴结果中提取本地代理所需字段：
 
-1. 登录官方账号 A
-2. 把 `~/.codex/auth.json` 复制成一个单独文件
-3. 登录官方账号 B
-4. 再复制一份新的 `auth.json`
-5. 在 `accounts.json` 里分别指向两个绝对路径
+- `accessToken`
+- `account.id`
+- `user.name`
+- `user.email`
+- `expires`
 
-这样控制台会把它们当成两个独立官方账号加载。
+这足够支撑路由转发和额度查询；但由于没有 `refresh_token`，会话过期后需要重新粘贴。
 
-## Codex 接入本地代理
+## 状态目录
 
-如果你希望 Codex 通过这个项目走本地代理，可以把 provider 指到本地服务，例如：
-
-```toml
-model_provider = "space_switcher"
-
-[model_providers.space_switcher]
-name = "space_switcher"
-base_url = "http://127.0.0.1:14318/ai-router/api"
-wire_api = "responses"
-requires_openai_auth = true
-```
-
-现在网页里也有单独的 “Codex 代理接管” 区块：
-
-- 打开开关时会直接改写 `~/.codex/config.toml`
-- 会显示当前 `model_provider`
-- 会显示当前 provider / 受管 provider 的 `base_url`
-- 会显示最近 10 分钟是否真的检测到 Codex 流量经过本地代理
-
-当前薄网关协议面只暴露：
-
-- `POST /ai-router/api/responses`
-- `GET /ai-router/api/models`
-
-兼容入口：
-
-- `POST /ai-router/api/v1/responses`
-- `GET /ai-router/api/v1/models`
-
-## 数据来源
-
-### 官方账号状态
-
-官方账号的 5 小时 / 一周额度，来自：
-
-- `GET /backend-api/wham/usage`
-
-### 筛选统计
-
-筛选统计来自本地代理捕获的事件，而不是空间 rollout 扫描：
-
-- 请求模型
-- 输入 token
-- cache token
-- 输出 token
-- 估算费用
-- 请求时间
-
-这些事件会落到：
-
-- `CODEX_SPACE_SWITCHER_HOME/usage-events.jsonl`
-
-## 默认状态目录
-
-默认状态目录仍然写到：
+默认状态目录：
 
 - `./.codex-space-switcher-state/`
 
-如果你想改到别处，可以设置：
+也可以通过环境变量改写：
 
 ```bash
 export CODEX_SPACE_SWITCHER_HOME="$HOME/.codex-space-switcher"
+```
+
+关键文件包括：
+
+- `accounts.json`
+- `auth/*.json`
+- `gateway-state.json`
+- `usage-events.jsonl`
+
+## 项目结构
+
+```text
+codex-space-switcher/
+├── apps/
+│   ├── backend/
+│   │   └── src/
+│   ├── frontend/
+├── packages/
+│   └── shared/
+└── docs/
+    └── screenshots/
 ```
 
 ## 测试
@@ -238,19 +269,19 @@ export CODEX_SPACE_SWITCHER_HOME="$HOME/.codex-space-switcher"
 npm test
 ```
 
-当前测试覆盖：
+当前测试重点覆盖：
 
 - 官方额度接口解析
-- 本地 rollout 额度与 token 解析
 - `/responses` usage 捕获
+- WebSocket usage 捕获
 - 费用估算
-- 筛选统计聚合
-- 旧空间切换队列的基础保护逻辑
+- 第三方账号校验
+- 统计聚合与账号更新流程
 
 ## 已知限制
 
-- 当前版本已经把重点转到“本地代理切换账号”，不再把私有空间切换当作主路径
-- 多官方账号仍需要你自己维护不同的 `auth.json` 快照
-- 预计费用目前按官方公开费率估算，不等同于精确账单
-- 第三方账号的实时额度状态没有统一标准，当前主要统计其代理用量，不尝试伪造统一额度接口
-- `/responses` 目前保持薄网关原则，不做复杂补偿和多轮协议拼装
+- 当前主路径是“本地代理切换账号”，不是直接控制官方私有空间切换
+- 多官方账号仍依赖登录态快照或手动粘贴会话
+- 费用为基于模型定价规则的估算值，不等同于官方精确账单
+- 第三方账号没有统一额度标准，当前主要关注代理用量审计，不伪造统一余额接口
+- 网关刻意保持轻量，不做复杂补偿、多轮编排或通用平台代理层

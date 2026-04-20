@@ -54,6 +54,7 @@ export function buildUsageEvent(
       inputTokens,
       cachedInputTokens,
       outputTokens,
+      account.kind === "third_party" ? account.billingRule?.pricing ?? null : null,
     ),
     status:
       overrideStatus ??

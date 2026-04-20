@@ -1,4 +1,7 @@
-import type { AccountKind } from "../../../packages/shared/src/index.ts";
+import type {
+  AccountKind,
+  ThirdPartyBillingRule,
+} from "../../../packages/shared/src/index.ts";
 import type { CodexSession } from "./codex-session-provider.ts";
 import { loadCodexSessionFromFile } from "./codex-session-provider.ts";
 import {
@@ -34,6 +37,7 @@ export interface ThirdPartyGatewayAccountDefinition extends GatewayAccountDefini
   apiKeyEnvName?: string;
   defaultModel?: string;
   requiresResponsesWebSocket?: boolean;
+  billingRule?: ThirdPartyBillingRule;
 }
 
 export type GatewayAccountDefinition =
@@ -68,6 +72,7 @@ export interface ThirdPartyGatewayAccount extends GatewayAccountRuntimeBase {
   baseUrl: string;
   defaultModel: string | null;
   requiresResponsesWebSocket: boolean;
+  billingRule: ThirdPartyBillingRule | null;
 }
 
 /**
@@ -267,5 +272,6 @@ function resolveThirdPartyAccount(
     baseUrl: definition.apiBaseUrl ?? DEFAULT_THIRD_PARTY_BASE_URL,
     defaultModel: definition.defaultModel?.trim() || null,
     requiresResponsesWebSocket: definition.requiresResponsesWebSocket === true,
+    billingRule: definition.billingRule ?? null,
   };
 }

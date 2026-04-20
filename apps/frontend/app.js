@@ -139,6 +139,12 @@ const elements = {
   thirdPartyAccountApiKeyInput: document.querySelector("#thirdPartyAccountApiKeyInput"),
   thirdPartyAccountBaseUrlInput: document.querySelector("#thirdPartyAccountBaseUrlInput"),
   thirdPartyAccountDefaultModelInput: document.querySelector("#thirdPartyAccountDefaultModelInput"),
+  thirdPartyAccountInputPriceInput: document.querySelector("#thirdPartyAccountInputPriceInput"),
+  thirdPartyAccountOutputPriceInput: document.querySelector("#thirdPartyAccountOutputPriceInput"),
+  thirdPartyAccountCachePriceInput: document.querySelector("#thirdPartyAccountCachePriceInput"),
+  thirdPartyAccountWeeklyBudgetInput: document.querySelector("#thirdPartyAccountWeeklyBudgetInput"),
+  thirdPartyAccountShortWindowBudgetInput: document.querySelector("#thirdPartyAccountShortWindowBudgetInput"),
+  thirdPartyAccountShortWindowKindInput: document.querySelector("#thirdPartyAccountShortWindowKindInput"),
   thirdPartyAccountWsRequiredInput: document.querySelector("#thirdPartyAccountWsRequiredInput"),
   thirdPartyAccountSubmit: document.querySelector("#thirdPartyAccountSubmit"),
   thirdPartyAccountFeedback: document.querySelector("#thirdPartyAccountFeedback"),
@@ -340,6 +346,12 @@ function bindAccountForms() {
     elements.thirdPartyAccountApiKeyInput,
     elements.thirdPartyAccountBaseUrlInput,
     elements.thirdPartyAccountDefaultModelInput,
+    elements.thirdPartyAccountInputPriceInput,
+    elements.thirdPartyAccountOutputPriceInput,
+    elements.thirdPartyAccountCachePriceInput,
+    elements.thirdPartyAccountWeeklyBudgetInput,
+    elements.thirdPartyAccountShortWindowBudgetInput,
+    elements.thirdPartyAccountShortWindowKindInput,
     elements.thirdPartyAccountWsRequiredInput,
   ]) {
     field?.addEventListener("input", clearThirdPartyValidationConfirmation);
@@ -498,6 +510,44 @@ async function handleThirdPartyAccountCreate(event) {
  * @returns {any}
  */
 function buildThirdPartyAccountPayload() {
+  const inputPrice = readOptionalNumber(
+    elements.thirdPartyAccountInputPriceInput?.value,
+  );
+  const outputPrice = readOptionalNumber(
+    elements.thirdPartyAccountOutputPriceInput?.value,
+  );
+  const cachePrice = readOptionalNumber(
+    elements.thirdPartyAccountCachePriceInput?.value,
+  );
+  const weeklyBudgetUsd = readOptionalNumber(
+    elements.thirdPartyAccountWeeklyBudgetInput?.value,
+  );
+  const shortWindowBudgetUsd = readOptionalNumber(
+    elements.thirdPartyAccountShortWindowBudgetInput?.value,
+  );
+
+  const billingRule = {};
+  if (
+    inputPrice !== undefined ||
+    outputPrice !== undefined ||
+    cachePrice !== undefined
+  ) {
+    billingRule.pricing = {
+      inputPerMillionUsd: inputPrice,
+      outputPerMillionUsd: outputPrice,
+      cachedInputPerMillionUsd: cachePrice,
+    };
+  }
+
+  if (weeklyBudgetUsd !== undefined || shortWindowBudgetUsd !== undefined) {
+    billingRule.quota = {
+      weeklyBudgetUsd,
+      shortWindowBudgetUsd,
+      shortWindowKind:
+        elements.thirdPartyAccountShortWindowKindInput?.value || "five_hour",
+    };
+  }
+
   return {
     kind: "third_party",
     name: elements.thirdPartyAccountNameInput?.value ?? "",
@@ -506,6 +556,8 @@ function buildThirdPartyAccountPayload() {
     defaultModel: elements.thirdPartyAccountDefaultModelInput?.value ?? "",
     requiresResponsesWebSocket:
       elements.thirdPartyAccountWsRequiredInput?.checked === true,
+    billingRule:
+      Object.keys(billingRule).length > 0 ? billingRule : undefined,
   };
 }
 
@@ -761,6 +813,30 @@ function fillAccountCreationForm(detail) {
   if (elements.thirdPartyAccountDefaultModelInput) {
     elements.thirdPartyAccountDefaultModelInput.value = detail.defaultModel ?? "";
   }
+  if (elements.thirdPartyAccountInputPriceInput) {
+    elements.thirdPartyAccountInputPriceInput.value =
+      detail.billingRule?.pricing?.inputPerMillionUsd?.toString() ?? "";
+  }
+  if (elements.thirdPartyAccountOutputPriceInput) {
+    elements.thirdPartyAccountOutputPriceInput.value =
+      detail.billingRule?.pricing?.outputPerMillionUsd?.toString() ?? "";
+  }
+  if (elements.thirdPartyAccountCachePriceInput) {
+    elements.thirdPartyAccountCachePriceInput.value =
+      detail.billingRule?.pricing?.cachedInputPerMillionUsd?.toString() ?? "";
+  }
+  if (elements.thirdPartyAccountWeeklyBudgetInput) {
+    elements.thirdPartyAccountWeeklyBudgetInput.value =
+      detail.billingRule?.quota?.weeklyBudgetUsd?.toString() ?? "";
+  }
+  if (elements.thirdPartyAccountShortWindowBudgetInput) {
+    elements.thirdPartyAccountShortWindowBudgetInput.value =
+      detail.billingRule?.quota?.shortWindowBudgetUsd?.toString() ?? "";
+  }
+  if (elements.thirdPartyAccountShortWindowKindInput) {
+    elements.thirdPartyAccountShortWindowKindInput.value =
+      detail.billingRule?.quota?.shortWindowKind ?? "five_hour";
+  }
   if (elements.thirdPartyAccountWsRequiredInput) {
     elements.thirdPartyAccountWsRequiredInput.checked =
       detail.requiresResponsesWebSocket === true;
@@ -853,7 +929,24 @@ function buildThirdPartyPayloadFingerprint(payload) {
     apiBaseUrl: payload.apiBaseUrl ?? "",
     defaultModel: payload.defaultModel ?? "",
     requiresResponsesWebSocket: payload.requiresResponsesWebSocket === true,
+    billingRule: payload.billingRule ?? null,
   });
+}
+
+/**
+ * 把表单中的可选数字输入转换为 number。
+ *
+ * @param {string | null | undefined} rawValue 原始字符串。
+ * @returns {number | undefined}
+ */
+function readOptionalNumber(rawValue) {
+  const trimmed = typeof rawValue === "string" ? rawValue.trim() : "";
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const value = Number(trimmed);
+  return Number.isFinite(value) ? value : undefined;
 }
 
 /**

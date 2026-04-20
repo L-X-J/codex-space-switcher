@@ -18,3 +18,19 @@ test("费用估算应对 cached input 使用单独费率", () => {
 
   assert.equal(cost, 3.55);
 });
+
+test("费用估算应允许第三方账号覆盖官方单价", () => {
+  const cost = estimateModelCostUsd(
+    "gpt-5.4",
+    1_000_000,
+    200_000,
+    100_000,
+    {
+      inputPerMillionUsd: 1,
+      cachedInputPerMillionUsd: 0.1,
+      outputPerMillionUsd: 2,
+    },
+  );
+
+  assert.equal(cost, 1.02);
+});

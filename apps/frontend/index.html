@@ -198,8 +198,8 @@
                     <span>账号</span>
                     <span>状态</span>
                     <span>累计 Token</span>
-                    <span>5 小时剩余</span>
-                    <span>近一周剩余</span>
+                    <span>短周期剩余</span>
+                    <span>每周剩余</span>
                     <span>路由</span>
                   </div>
                   <div id="accountsList" class="account-list"></div>
@@ -214,7 +214,7 @@
                     <p class="eyebrow">Usage</p>
                     <h2>筛选统计</h2>
                     <p class="section-caption">
-                      查看筛选后的输入 Token、Cache Token、输出 Token 与官方口径估算费用。
+                      查看筛选后的输入 Token、Cache Token、输出 Token，以及按官方或账号自定义规则估算的费用。
                     </p>
                   </div>
                   <div class="toolbar">
@@ -405,6 +405,88 @@
                 placeholder="例如：gpt-5.4-mini"
               />
             </label>
+            <section class="form-section">
+              <div class="form-section-head">
+                <span class="field-label">单独计费规则（可选）</span>
+                <span class="muted-text">
+                  留空时按官方公开定价估算；额度会按当前生效的单价扣减。
+                </span>
+              </div>
+              <div class="form-grid form-grid-3">
+                <label class="form-field">
+                  <span class="field-label">输入计费</span>
+                  <input
+                    id="thirdPartyAccountInputPriceInput"
+                    class="text-input"
+                    type="number"
+                    min="0"
+                    step="0.0001"
+                    inputmode="decimal"
+                    placeholder="USD / 1M"
+                  />
+                </label>
+                <label class="form-field">
+                  <span class="field-label">输出计费</span>
+                  <input
+                    id="thirdPartyAccountOutputPriceInput"
+                    class="text-input"
+                    type="number"
+                    min="0"
+                    step="0.0001"
+                    inputmode="decimal"
+                    placeholder="USD / 1M"
+                  />
+                </label>
+                <label class="form-field">
+                  <span class="field-label">Cache 计费</span>
+                  <input
+                    id="thirdPartyAccountCachePriceInput"
+                    class="text-input"
+                    type="number"
+                    min="0"
+                    step="0.0001"
+                    inputmode="decimal"
+                    placeholder="USD / 1M"
+                  />
+                </label>
+              </div>
+              <div class="form-grid form-grid-2">
+                <label class="form-field">
+                  <span class="field-label">每周额度</span>
+                  <input
+                    id="thirdPartyAccountWeeklyBudgetInput"
+                    class="text-input"
+                    type="number"
+                    min="0"
+                    step="0.0001"
+                    inputmode="decimal"
+                    placeholder="USD"
+                  />
+                </label>
+                <label class="form-field">
+                  <span class="field-label">短周期额度</span>
+                  <input
+                    id="thirdPartyAccountShortWindowBudgetInput"
+                    class="text-input"
+                    type="number"
+                    min="0"
+                    step="0.0001"
+                    inputmode="decimal"
+                    placeholder="USD"
+                  />
+                </label>
+              </div>
+              <label class="form-field">
+                <span class="field-label">短周期类型</span>
+                <select
+                  id="thirdPartyAccountShortWindowKindInput"
+                  class="filter-select text-select"
+                >
+                  <option value="five_hour">每 5 小时</option>
+                  <option value="daily">每天</option>
+                </select>
+              </label>
+            </section>
             <label class="check-field" for="thirdPartyAccountWsRequiredInput">
               <input
                 id="thirdPartyAccountWsRequiredInput"
@@ -584,14 +666,14 @@
           </div>
         </div>
         <div class="account-cell">
-          <span class="metric-label">5 小时剩余</span>
+          <span class="metric-label account-short-window-label">短周期剩余</span>
           <div class="summary-stat">
             <strong class="metric-value account-primary-remaining"></strong>
             <span class="metric-footnote account-primary-reset"></span>
           </div>
         </div>
         <div class="account-cell">
-          <span class="metric-label">近一周剩余</span>
+          <span class="metric-label account-weekly-window-label">每周剩余</span>
           <div class="summary-stat">
             <strong class="metric-value account-secondary-remaining"></strong>
             <span class="metric-footnote account-secondary-reset"></span>

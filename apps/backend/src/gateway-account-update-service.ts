@@ -23,6 +23,7 @@ import { AUTH_FILE, OFFICIAL_CODEX_BASE_URL } from "./config.ts";
 import { HttpError } from "./http-error.ts";
 import { loadOfficialUsageSnapshot } from "./official-account-usage-provider.ts";
 import { validateThirdPartyAccount } from "./third-party-account-validation.ts";
+import { normalizeThirdPartyBillingRule } from "./third-party-billing-rules.ts";
 
 /**
  * 本文件负责账号编辑流程。
@@ -56,6 +57,7 @@ export async function getEditableAccountDetail(
     defaultModel: definition.defaultModel ?? "",
     requiresResponsesWebSocket:
       definition.requiresResponsesWebSocket === true,
+    billingRule: definition.billingRule ?? null,
   };
 }
 
@@ -183,6 +185,7 @@ async function updateThirdPartyGatewayAccount(
   const apiBaseUrl = normalizeBaseUrl(
     typeof input.apiBaseUrl === "string" ? input.apiBaseUrl : "",
   );
+  const billingRule = normalizeThirdPartyBillingRule(input.billingRule);
   await validateThirdPartyAccount({
     apiBaseUrl,
     apiKey,
@@ -199,6 +202,7 @@ async function updateThirdPartyGatewayAccount(
         ? input.defaultModel.trim() || undefined
         : undefined,
     requiresResponsesWebSocket: input.requiresResponsesWebSocket === true,
+    billingRule,
   };
   await updateGatewayAccountDefinition(definition.id, nextDefinition);
 

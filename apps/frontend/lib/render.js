@@ -348,6 +348,8 @@ export function renderAccountRows(accounts, elements, onActivate, onEdit) {
     const health = fragment.querySelector(".health-pill");
     const primaryUsage = account.officialUsage?.primary ?? null;
     const secondaryUsage = account.officialUsage?.secondary ?? null;
+    const shortBudget = account.thirdPartyBudgetSnapshot?.shortWindow ?? null;
+    const weeklyBudget = account.thirdPartyBudgetSnapshot?.weeklyWindow ?? null;
 
     root.dataset.active = account.isActive ? "true" : "false";
     fragment.querySelector(".account-name").textContent = account.name;
@@ -361,16 +363,26 @@ export function renderAccountRows(accounts, elements, onActivate, onEdit) {
     fragment.querySelector(".account-estimated-cost").textContent = formatCurrency(
       account.cumulativeUsage.estimatedCostUsd,
     );
-    fragment.querySelector(".account-primary-remaining").textContent = formatPercent(
-      primaryUsage?.remainingPercent ?? null,
-    );
+    fragment.querySelector(".account-short-window-label").textContent =
+      shortBudget?.label ?? (account.kind === "official" ? "5 小时剩余" : "短周期剩余");
+    fragment.querySelector(".account-weekly-window-label").textContent =
+      weeklyBudget?.label ?? (account.kind === "official" ? "近一周剩余" : "每周剩余");
+    fragment.querySelector(".account-primary-remaining").textContent =
+      account.kind === "third_party"
+        ? formatBudgetRemaining(shortBudget)
+        : formatPercent(primaryUsage?.remainingPercent ?? null);
     fragment.querySelector(".account-primary-reset").textContent =
-      formatResetCountdown(primaryUsage?.resetsAt ?? null);
-    fragment.querySelector(".account-secondary-remaining").textContent = formatPercent(
-      secondaryUsage?.remainingPercent ?? null,
-    );
+      account.kind === "third_party"
+        ? formatBudgetMeta(shortBudget)
+        : formatResetCountdown(primaryUsage?.resetsAt ?? null);
+    fragment.querySelector(".account-secondary-remaining").textContent =
+      account.kind === "third_party"
+        ? formatBudgetRemaining(weeklyBudget)
+        : formatPercent(secondaryUsage?.remainingPercent ?? null);
     fragment.querySelector(".account-secondary-reset").textContent =
-      formatResetCountdown(secondaryUsage?.resetsAt ?? null);
+      account.kind === "third_party"
+        ? formatBudgetMeta(weeklyBudget)
+        : formatResetCountdown(secondaryUsage?.resetsAt ?? null);
 
     health.textContent = translateHealth(account.health);
     health.dataset.health = account.health;
@@ -473,6 +485,13 @@ export function renderAccountCreationForms(elements, viewState) {
       elements.thirdPartyAccountApiKeyInput,
       elements.thirdPartyAccountBaseUrlInput,
       elements.thirdPartyAccountDefaultModelInput,
+      elements.thirdPartyAccountInputPriceInput,
+      elements.thirdPartyAccountOutputPriceInput,
+      elements.thirdPartyAccountCachePriceInput,
+      elements.thirdPartyAccountWeeklyBudgetInput,
+      elements.thirdPartyAccountShortWindowBudgetInput,
+      elements.thirdPartyAccountShortWindowKindInput,
+      elements.thirdPartyAccountWsRequiredInput,
     ],
     elements.thirdPartyAccountFeedback,
     viewState.thirdParty,
@@ -695,6 +714,34 @@ function buildAccountDetailText(account) {
   }
 
   return "等待首次检查。";
+}
+
+/**
+ * 格式化第三方预算窗口的剩余额度。
+ *
+ * @param {any} budgetWindow 单个预算窗口。
+ * @returns {string}
+ */
+function formatBudgetRemaining(budgetWindow) {
+  if (!budgetWindow) {
+    return "--";
+  }
+
+  return formatCurrency(budgetWindow.remainingUsd ?? 0);
+}
+
+/**
+ * 格式化第三方预算窗口的说明文案。
+ *
+ * @param {any} budgetWindow 单个预算窗口。
+ * @returns {string}
+ */
+function formatBudgetMeta(budgetWindow) {
+  if (!budgetWindow) {
+    return "未设置额度";
+  }
+
+  return `已用 ${formatCurrency(budgetWindow.spentUsd)} / ${formatCurrency(budgetWindow.limitUsd)} · ${formatResetCountdown(budgetWindow.resetsAt)}`;
 }
 
 /**

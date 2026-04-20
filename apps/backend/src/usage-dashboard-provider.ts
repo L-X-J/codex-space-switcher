@@ -1,12 +1,12 @@
 import type {
   AccountCard,
-  AccountKind,
   AccountUsageTotals,
+  UsageEventRecord,
   UsageDashboardSummary,
   UsageDashboardWindow,
-  UsageEventRecord,
   UsageFilterOption,
 } from "../../../packages/shared/src/index.ts";
+import { estimateUsageEventCostUsd } from "./model-pricing.ts";
 
 /**
  * 本文件负责把代理事件聚合成前端看板所需的筛选结果。
@@ -89,12 +89,13 @@ export function buildUsageDashboardSummary(
     generatedAt: now.toISOString(),
     selectedFilterId: selectedFilter.id,
     filters,
-    cumulative: buildWindow("累计用量", filteredEvents, now),
+    cumulative: buildWindow("累计用量", filteredEvents, accounts, now),
     last5Hours: buildWindow(
       "最近 5 小时",
       filteredEvents.filter(
         (event) => new Date(event.createdAt).getTime() >= last5HoursStart.getTime(),
       ),
+      accounts,
       now,
       last5HoursStart,
     ),
@@ -103,6 +104,7 @@ export function buildUsageDashboardSummary(
       filteredEvents.filter(
         (event) => new Date(event.createdAt).getTime() >= last7DaysStart.getTime(),
       ),
+      accounts,
       now,
       last7DaysStart,
     ),
@@ -127,9 +129,14 @@ export function listRecentUsageEvents(
   const filters = buildUsageFilters(accounts);
   const selectedFilter =
     filters.find((filter) => filter.id === selectedFilterId) ?? filters[0]!;
+  const accountsById = buildAccountMap(accounts);
 
   return [...events]
     .filter((event) => matchesFilter(event, selectedFilter))
+    .map((event) => ({
+      ...event,
+      estimatedCostUsd: resolveEventCostUsd(event, accountsById),
+    }))
     .sort(
       (left, right) =>
         new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
@@ -145,14 +152,16 @@ export function listRecentUsageEvents(
  */
 export function aggregateUsageTotals(
   events: UsageEventRecord[],
+  accounts: AccountCard[] = [],
 ): AccountUsageTotals {
+  const accountsById = buildAccountMap(accounts);
   return events.reduce<AccountUsageTotals>(
     (totals, event) => {
       totals.inputTokens += event.inputTokens;
       totals.cachedInputTokens += event.cachedInputTokens;
       totals.outputTokens += event.outputTokens;
       totals.totalTokens += event.totalTokens;
-      totals.estimatedCostUsd += event.estimatedCostUsd;
+      totals.estimatedCostUsd += resolveEventCostUsd(event, accountsById);
       totals.requests += 1;
       return totals;
     },
@@ -210,6 +219,7 @@ function matchesFilter(
 function buildWindow(
   label: string,
   events: UsageEventRecord[],
+  accounts: AccountCard[],
   now: Date,
   windowStart?: Date,
 ): UsageDashboardWindow {
@@ -223,6 +233,35 @@ function buildWindow(
     windowStart:
       windowStart?.toISOString() ?? sorted[0]?.createdAt ?? null,
     windowEnd: sorted.length > 0 ? now.toISOString() : null,
-    totals: aggregateUsageTotals(events),
+    totals: aggregateUsageTotals(events, accounts),
   };
+}
+
+/**
+ * 建立按账号 ID 索引的卡片映射，便于复用账号级计费规则。
+ *
+ * @param accounts 账号卡片数组。
+ * @returns 账号索引表。
+ */
+function buildAccountMap(accounts: AccountCard[]): Map<string, AccountCard> {
+  return new Map(accounts.map((account) => [account.id, account]));
+}
+
+/**
+ * 用当前账号配置重新推导单条事件的费用。
+ *
+ * @param event 已落盘的 usage 事件。
+ * @param accountsById 当前账号索引。
+ * @returns 当前口径下的估算费用。
+ */
+function resolveEventCostUsd(
+  event: UsageEventRecord,
+  accountsById: Map<string, AccountCard>,
+): number {
+  const account = accountsById.get(event.accountId);
+  if (account?.kind === "third_party") {
+    return estimateUsageEventCostUsd(event, account.thirdPartyBillingRule ?? null);
+  }
+
+  return estimateUsageEventCostUsd(event, null);
 }

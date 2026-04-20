@@ -84,6 +84,56 @@ export interface OfficialUsageSnapshot {
   secondary: OfficialUsageWindow | null;
 }
 
+export type ThirdPartyBudgetWindowKind = "daily" | "five_hour";
+
+/**
+ * 描述第三方账号的自定义单价。
+ * 所有价格均以 USD / 1M tokens 为单位。
+ */
+export interface ThirdPartyPricingRule {
+  inputPerMillionUsd: number;
+  outputPerMillionUsd: number;
+  cachedInputPerMillionUsd: number;
+}
+
+/**
+ * 描述第三方账号的预算窗口。
+ * 预算本身以美元计，实际消耗金额由当前计费规则推导。
+ */
+export interface ThirdPartyQuotaRule {
+  weeklyBudgetUsd?: number;
+  shortWindowBudgetUsd?: number;
+  shortWindowKind?: ThirdPartyBudgetWindowKind;
+}
+
+/**
+ * 描述第三方账号可选的账号级计费覆盖规则。
+ * 用户可以只配置价格、只配置预算，或两者同时配置。
+ */
+export interface ThirdPartyBillingRule {
+  pricing?: ThirdPartyPricingRule;
+  quota?: ThirdPartyQuotaRule;
+}
+
+/**
+ * 描述一个预算窗口在 UI 中的展示摘要。
+ */
+export interface AccountBudgetWindowSummary {
+  label: string;
+  limitUsd: number;
+  spentUsd: number;
+  remainingUsd: number;
+  resetsAt: string;
+}
+
+/**
+ * 描述第三方账号基于本地审计事件推导出的预算消耗。
+ */
+export interface AccountBudgetSnapshot {
+  shortWindow: AccountBudgetWindowSummary | null;
+  weeklyWindow: AccountBudgetWindowSummary | null;
+}
+
 /**
  * 描述一次聚合后的 token 与费用统计。
  */
@@ -108,6 +158,8 @@ export interface AccountCard {
   statusLabel: string;
   lastCheckedAt: string | null;
   officialUsage: OfficialUsageSnapshot | null;
+  thirdPartyBillingRule?: ThirdPartyBillingRule | null;
+  thirdPartyBudgetSnapshot?: AccountBudgetSnapshot | null;
   cumulativeUsage: AccountUsageTotals;
   rawDiagnostics: string[];
 }
@@ -345,6 +397,7 @@ export interface CreateThirdPartyAccountRequestBody {
   apiBaseUrl: string;
   defaultModel?: string;
   requiresResponsesWebSocket?: boolean;
+  billingRule?: ThirdPartyBillingRule;
   skipConnectivityCheck?: boolean;
 }
 
@@ -384,6 +437,7 @@ export interface UpdateThirdPartyAccountRequestBody {
   apiBaseUrl: string;
   defaultModel?: string;
   requiresResponsesWebSocket?: boolean;
+  billingRule?: ThirdPartyBillingRule;
   skipConnectivityCheck?: boolean;
 }
 
@@ -426,6 +480,7 @@ export interface EditableThirdPartyAccount {
   apiBaseUrl: string;
   defaultModel: string;
   requiresResponsesWebSocket: boolean;
+  billingRule: ThirdPartyBillingRule | null;
 }
 
 /**

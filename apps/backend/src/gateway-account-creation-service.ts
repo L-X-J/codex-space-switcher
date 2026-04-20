@@ -18,6 +18,7 @@ import { OFFICIAL_CODEX_BASE_URL } from "./config.ts";
 import { HttpError } from "./http-error.ts";
 import { loadOfficialUsageSnapshot } from "./official-account-usage-provider.ts";
 import { validateThirdPartyAccount } from "./third-party-account-validation.ts";
+import { normalizeThirdPartyBillingRule } from "./third-party-billing-rules.ts";
 
 /**
  * 本文件负责“新增账号”流程。
@@ -128,6 +129,7 @@ async function createThirdPartyGatewayAccount(
   const apiBaseUrl = normalizeBaseUrl(
     typeof input.apiBaseUrl === "string" ? input.apiBaseUrl : "",
   );
+  const billingRule = normalizeThirdPartyBillingRule(input.billingRule);
   await validateThirdPartyAccount({
     apiBaseUrl,
     apiKey,
@@ -152,6 +154,7 @@ async function createThirdPartyGatewayAccount(
         ? input.defaultModel.trim() || undefined
         : undefined,
     requiresResponsesWebSocket: input.requiresResponsesWebSocket === true,
+    billingRule,
   });
 
   return {

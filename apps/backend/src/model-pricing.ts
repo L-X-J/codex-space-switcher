@@ -1,3 +1,9 @@
+import type {
+  ThirdPartyBillingRule,
+  ThirdPartyPricingRule,
+  UsageEventRecord,
+} from "../../../packages/shared/src/index.ts";
+
 /**
  * 本文件维护“按官方公开定价估算费用”的规则。
  * 这些费率用于本地仪表盘估算，不用于账单对账。
@@ -9,7 +15,7 @@
  * - GPT-5.3 codex：输入 1.75 / 缓存输入 0.175 / 输出 14.00
  */
 
-interface ModelPricingRule {
+export interface ModelPricingRule {
   prefix: string;
   inputPerMillionUsd: number;
   cachedInputPerMillionUsd: number;
@@ -91,8 +97,9 @@ export function estimateModelCostUsd(
   inputTokens: number,
   cachedInputTokens: number,
   outputTokens: number,
+  pricingOverride?: ThirdPartyPricingRule | null,
 ): number {
-  const pricing = resolveModelPricingRule(model);
+  const pricing = pricingOverride ?? resolveModelPricingRule(model);
   const safeInputTokens = Math.max(inputTokens, 0);
   const safeCachedTokens = Math.max(
     Math.min(cachedInputTokens, safeInputTokens),
@@ -104,5 +111,28 @@ export function estimateModelCostUsd(
     (uncachedInputTokens / 1_000_000) * pricing.inputPerMillionUsd +
     (safeCachedTokens / 1_000_000) * pricing.cachedInputPerMillionUsd +
     (Math.max(outputTokens, 0) / 1_000_000) * pricing.outputPerMillionUsd
+  );
+}
+
+/**
+ * 按事件本身携带的 token 统计重新估算费用。
+ *
+ * @param event 已落盘的 usage 事件。
+ * @param billingRule 账号级计费规则。
+ * @returns 当前规则下的费用。
+ */
+export function estimateUsageEventCostUsd(
+  event: Pick<
+    UsageEventRecord,
+    "model" | "inputTokens" | "cachedInputTokens" | "outputTokens"
+  >,
+  billingRule?: ThirdPartyBillingRule | null,
+): number {
+  return estimateModelCostUsd(
+    event.model,
+    event.inputTokens,
+    event.cachedInputTokens,
+    event.outputTokens,
+    billingRule?.pricing ?? null,
   );
 }

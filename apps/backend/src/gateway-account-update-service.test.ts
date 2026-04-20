@@ -122,6 +122,18 @@ test("updateGatewayAccount 应持久化第三方账号编辑结果", async () =>
         apiBaseUrl: "https://new.example.com/v1/",
         defaultModel: "gpt-4.1-mini",
         requiresResponsesWebSocket: true,
+        billingRule: {
+          pricing: {
+            inputPerMillionUsd: 1,
+            outputPerMillionUsd: 2,
+            cachedInputPerMillionUsd: 0.1,
+          },
+          quota: {
+            weeklyBudgetUsd: 30,
+            shortWindowBudgetUsd: 5,
+            shortWindowKind: "daily",
+          },
+        },
       });
 
       const saved = JSON.parse(
@@ -139,6 +151,18 @@ test("updateGatewayAccount 应持久化第三方账号编辑结果", async () =>
   assert.equal(result.saved.accounts[0].apiBaseUrl, "https://new.example.com/v1");
   assert.equal(result.saved.accounts[0].defaultModel, "gpt-4.1-mini");
   assert.equal(result.saved.accounts[0].requiresResponsesWebSocket, true);
+  assert.deepEqual(result.saved.accounts[0].billingRule, {
+    pricing: {
+      inputPerMillionUsd: 1,
+      outputPerMillionUsd: 2,
+      cachedInputPerMillionUsd: 0.1,
+    },
+    quota: {
+      weeklyBudgetUsd: 30,
+      shortWindowBudgetUsd: 5,
+      shortWindowKind: "daily",
+    },
+  });
 });
 
 test("handleAccountDefinitionUpdated 会在激活账号编辑后同步 config.toml", async () => {

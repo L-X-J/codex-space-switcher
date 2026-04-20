@@ -21,6 +21,8 @@ const accounts = [
     statusLabel: "Official Plus",
     lastCheckedAt: null,
     officialUsage: null,
+    thirdPartyBillingRule: null,
+    thirdPartyBudgetSnapshot: null,
     cumulativeUsage: {
       inputTokens: 0,
       cachedInputTokens: 0,
@@ -40,6 +42,8 @@ const accounts = [
     statusLabel: "Official Team",
     lastCheckedAt: null,
     officialUsage: null,
+    thirdPartyBillingRule: null,
+    thirdPartyBudgetSnapshot: null,
     cumulativeUsage: {
       inputTokens: 0,
       cachedInputTokens: 0,
@@ -59,6 +63,19 @@ const accounts = [
     statusLabel: "第三方路由可用",
     lastCheckedAt: null,
     officialUsage: null,
+    thirdPartyBillingRule: {
+      pricing: {
+        inputPerMillionUsd: 1,
+        cachedInputPerMillionUsd: 0.1,
+        outputPerMillionUsd: 2,
+      },
+      quota: {
+        shortWindowBudgetUsd: 3,
+        shortWindowKind: "five_hour",
+        weeklyBudgetUsd: 20,
+      },
+    },
+    thirdPartyBudgetSnapshot: null,
     cumulativeUsage: {
       inputTokens: 0,
       cachedInputTokens: 0,
@@ -137,9 +154,23 @@ test("应能按账号类型筛选并聚合累计 totals", () => {
 test("应能按单个账号筛选最近事件", () => {
   const totals = aggregateUsageTotals(
     events.filter((event) => event.accountId === "third-party-x"),
+    accounts,
   );
 
   assert.equal(totals.requests, 1);
   assert.equal(totals.cachedInputTokens, 100);
   assert.equal(totals.totalTokens, 600);
+  assert.ok(Math.abs(totals.estimatedCostUsd - 0.00061) < 1e-12);
+});
+
+test("第三方账号最近事件应按当前账号计费规则重新计算费用", () => {
+  const summary = buildUsageDashboardSummary(
+    events,
+    accounts,
+    "account:third-party-x",
+    new Date("2026-04-17T07:00:00.000Z"),
+  );
+
+  assert.equal(summary.cumulative.totals.requests, 1);
+  assert.ok(Math.abs(summary.cumulative.totals.estimatedCostUsd - 0.00061) < 1e-12);
 });

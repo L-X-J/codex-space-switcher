@@ -1,5 +1,6 @@
 import type {
   AccountCard,
+  AccountBudgetSnapshot,
   ActivateAccountResponse,
   ActivateAccountPreviewResponse,
   CodexConfigMutationResult,
@@ -49,6 +50,11 @@ import {
   createEmptyUsageTotals,
 } from "./usage-dashboard-provider.ts";
 import { loadUsageEvents } from "./usage-event-store.ts";
+import { buildThirdPartyBudgetSnapshot } from "./third-party-budget-usage.ts";
+import {
+  describeThirdPartyBillingRule,
+  hasCustomThirdPartyPricing,
+} from "./third-party-billing-rules.ts";
 import { formatError } from "./utils.ts";
 
 type EventListener = (event: ServerEvent<unknown>) => void;
@@ -201,16 +207,6 @@ export class GatewayDashboardService {
     );
 
     const usageEvents = await loadUsageEvents();
-    const totalsByAccountId = new Map<string, ReturnType<typeof createEmptyUsageTotals>>();
-    for (const account of runtimeAccounts) {
-      totalsByAccountId.set(
-        account.id,
-        aggregateUsageTotals(
-          usageEvents.filter((event) => event.accountId === account.id),
-        ),
-      );
-    }
-
     const draftAccounts = await Promise.all(
       runtimeAccounts.map(async (account) => {
         const rawDiagnostics = [...account.rawDiagnostics];
@@ -218,6 +214,9 @@ export class GatewayDashboardService {
         let statusLabel = account.isConfigured ? "已就绪" : "配置缺失";
         let officialUsage = null;
         let lastCheckedAt: string | null = null;
+        let thirdPartyBillingRule = null;
+        let thirdPartyBudgetSnapshot = null;
+        const accountEvents = usageEvents.filter((event) => event.accountId === account.id);
 
         if (account.kind === "official") {
           if (!account.isConfigured) {
@@ -240,6 +239,27 @@ export class GatewayDashboardService {
           statusLabel = "缺少 API Key";
         } else {
           statusLabel = "第三方路由可用";
+          thirdPartyBillingRule = account.billingRule ?? null;
+          thirdPartyBudgetSnapshot = buildThirdPartyBudgetSnapshot(
+            accountEvents,
+            thirdPartyBillingRule,
+          );
+          const billingHint = describeThirdPartyBillingRule(thirdPartyBillingRule);
+          if (billingHint) {
+            rawDiagnostics.push(billingHint);
+          } else {
+            rawDiagnostics.push("未配置单独计费规则时，将按官方公开定价估算费用。");
+          }
+          if (hasCustomThirdPartyPricing(thirdPartyBillingRule)) {
+            statusLabel = "第三方自定义计费";
+          }
+          if (isBudgetExhausted(thirdPartyBudgetSnapshot)) {
+            health = "exhausted";
+            statusLabel = "第三方额度耗尽";
+          } else if (isBudgetWarning(thirdPartyBudgetSnapshot)) {
+            health = "warning";
+            statusLabel = "第三方额度预警";
+          }
         }
 
         return {
@@ -251,8 +271,24 @@ export class GatewayDashboardService {
           statusLabel,
           lastCheckedAt,
           officialUsage,
-          cumulativeUsage:
-            totalsByAccountId.get(account.id) ?? createEmptyUsageTotals(),
+          thirdPartyBillingRule,
+          thirdPartyBudgetSnapshot,
+          cumulativeUsage: aggregateUsageTotals(accountEvents, [
+            {
+              id: account.id,
+              name: account.name,
+              kind: account.kind,
+              isActive: account.isActive,
+              health,
+              statusLabel,
+              lastCheckedAt,
+              officialUsage: null,
+              thirdPartyBillingRule,
+              thirdPartyBudgetSnapshot: null,
+              cumulativeUsage: createEmptyUsageTotals(),
+              rawDiagnostics: [],
+            },
+          ]),
           rawDiagnostics,
         } satisfies AccountCard;
       }),
@@ -702,4 +738,32 @@ export function pickHealthyActiveAccountId(
 
   const firstHealthy = accounts.find((account) => account.health !== "error");
   return firstHealthy?.id ?? accounts[0]?.id ?? null;
+}
+
+/**
+ * 判断第三方预算是否已经耗尽。
+ *
+ * @param snapshot 当前预算摘要。
+ * @returns 任一窗口耗尽时返回 `true`。
+ */
+function isBudgetExhausted(snapshot: AccountBudgetSnapshot | null): boolean {
+  return [snapshot?.shortWindow, snapshot?.weeklyWindow].some(
+    (window) => window && window.remainingUsd <= 0,
+  );
+}
+
+/**
+ * 判断第三方预算是否进入预警状态。
+ *
+ * @param snapshot 当前预算摘要。
+ * @returns 任一窗口剩余不足 15% 时返回 `true`。
+ */
+function isBudgetWarning(snapshot: AccountBudgetSnapshot | null): boolean {
+  return [snapshot?.shortWindow, snapshot?.weeklyWindow].some((window) => {
+    if (!window || window.limitUsd <= 0) {
+      return false;
+    }
+
+    return window.remainingUsd / window.limitUsd <= 0.15;
+  });
 }

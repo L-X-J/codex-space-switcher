@@ -16,7 +16,11 @@ export async function fetchJson(url, init) {
   const payload = text.length > 0 ? JSON.parse(text) : null;
 
   if (!response.ok) {
-    throw new Error(payload?.error ?? `请求失败：${response.status}`);
+    const error = new Error(payload?.error ?? `请求失败：${response.status}`);
+    error.statusCode = response.status;
+    error.code = payload?.code ?? null;
+    error.payload = payload;
+    throw error;
   }
 
   return payload;
@@ -29,6 +33,49 @@ export async function fetchJson(url, init) {
  */
 export function getAccounts() {
   return fetchJson("/api/accounts");
+}
+
+/**
+ * 新增一个账号定义。
+ *
+ * @param {any} payload 新账号请求体。
+ * @returns {Promise<any>}
+ */
+export function createAccount(payload) {
+  return fetchJson("/api/accounts", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * 读取某个账号的可编辑详情。
+ *
+ * @param {string} accountId 账号 ID。
+ * @returns {Promise<any>}
+ */
+export function getEditableAccount(accountId) {
+  return fetchJson(`/api/accounts/${encodeURIComponent(accountId)}/edit`);
+}
+
+/**
+ * 更新一个已有账号。
+ *
+ * @param {string} accountId 账号 ID。
+ * @param {any} payload 更新请求体。
+ * @returns {Promise<any>}
+ */
+export function updateAccount(accountId, payload) {
+  return fetchJson(`/api/accounts/${encodeURIComponent(accountId)}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
 }
 
 /**
@@ -97,6 +144,35 @@ export function activateAccount(targetAccountId) {
     body: JSON.stringify({
       targetAccountId,
     }),
+  });
+}
+
+/**
+ * 预览切换某个路由账号时，是否会触发 `config.toml` 改写。
+ *
+ * @param {string} targetAccountId 目标账号 ID。
+ * @returns {Promise<any>}
+ */
+export function previewActivateAccount(targetAccountId) {
+  return fetchJson("/api/accounts/activate-preview", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      targetAccountId,
+    }),
+  });
+}
+
+/**
+ * 请求重启本机 Codex Desktop。
+ *
+ * @returns {Promise<any>}
+ */
+export function restartCodexApp() {
+  return fetchJson("/api/codex/restart", {
+    method: "POST",
   });
 }
 

@@ -68,6 +68,22 @@ export function isGatewayMetadataRequest(
 }
 
 /**
+ * 判断某个路径是否命中 `/responses` 协议入口。
+ *
+ * WebSocket upgrade 会以 `GET` 进入，但仍然需要落到与 HTTP POST 相同的 responses 网关路径。
+ *
+ * @param pathname 当前请求路径。
+ * @returns 若命中 responses 路径则为 `true`。
+ */
+export function isGatewayResponsesPath(pathname: string): boolean {
+  const routes = buildGatewayRoutePaths();
+  return (
+    pathname === routes.providerResponsesPath ||
+    pathname === routes.versionedResponsesPath
+  );
+}
+
+/**
  * 判断某个请求是否应交给 `/responses` 代理处理。
  *
  * @param pathname 当前请求路径。
@@ -78,12 +94,7 @@ export function isGatewayResponsesRequest(
   pathname: string,
   method: string | undefined,
 ): boolean {
-  const routes = buildGatewayRoutePaths();
-  return (
-    method === "POST" &&
-    (pathname === routes.providerResponsesPath ||
-      pathname === routes.versionedResponsesPath)
-  );
+  return method === "POST" && isGatewayResponsesPath(pathname);
 }
 
 /**

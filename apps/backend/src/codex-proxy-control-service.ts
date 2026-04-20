@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type {
+  CodexConfigMutationResult,
   CodexProxyConfigStatus,
   CodexProxyStatus,
   ProxyClientSnapshot,
@@ -25,6 +26,7 @@ interface CodexProxyControlServiceOptions {
   controlStatePath?: string;
   expectedBaseUrl?: string;
   providerName?: string;
+  supportsWebsockets?: boolean;
 }
 
 /**
@@ -45,6 +47,7 @@ export async function readCodexProxyConfigStatus(
   const providerName = options.providerName ?? MANAGED_CODEX_PROVIDER_NAME;
   const expectedBaseUrl =
     options.expectedBaseUrl ?? buildManagedProviderBaseUrl();
+  const expectedSupportsWebsockets = options.supportsWebsockets === true;
   const diagnostics: string[] = [];
 
   let content = "";
@@ -67,6 +70,11 @@ export async function readCodexProxyConfigStatus(
     providerName,
     "base_url",
   );
+  const configuredSupportsWebsockets = readProviderBooleanValue(
+    content,
+    providerName,
+    "supports_websockets",
+  );
 
   if (!currentModelProvider) {
     diagnostics.push("当前 config.toml 中未声明 model_provider。");
@@ -85,6 +93,14 @@ export async function readCodexProxyConfigStatus(
     diagnostics.push("当前 provider 的 base_url 与本地代理期望地址不一致。");
   }
 
+  if (
+    currentModelProvider === providerName &&
+    configuredSupportsWebsockets !== null &&
+    configuredSupportsWebsockets !== expectedSupportsWebsockets
+  ) {
+    diagnostics.push("当前 provider 的 supports_websockets 与当前路由账号期望不一致。");
+  }
+
   return {
     configPath,
     providerName,
@@ -92,9 +108,12 @@ export async function readCodexProxyConfigStatus(
     currentProviderBaseUrl,
     configuredBaseUrl,
     expectedBaseUrl,
+    configuredSupportsWebsockets,
+    expectedSupportsWebsockets,
     isEnabled:
       currentModelProvider === providerName &&
-      configuredBaseUrl === expectedBaseUrl,
+      configuredBaseUrl === expectedBaseUrl &&
+      configuredSupportsWebsockets === expectedSupportsWebsockets,
     diagnostics,
   };
 }
@@ -104,17 +123,18 @@ export async function readCodexProxyConfigStatus(
  *
  * @param enabled `true` 表示接管，`false` 表示恢复。
  * @param options 可选的覆盖项，主要用于测试。
- * @returns 更新后的配置状态。
+ * @returns 配置改写结果，以及是否需要重启 Codex Desktop。
  * @throws 当关闭接管时缺少恢复目标，或配置文件无法写入时抛出异常。
  */
 export async function setCodexProxyEnabled(
   enabled: boolean,
   options: CodexProxyControlServiceOptions = {},
-): Promise<CodexProxyConfigStatus> {
+): Promise<CodexConfigMutationResult> {
   const configPath = options.configPath ?? CODEX_CONFIG_FILE;
   const providerName = options.providerName ?? MANAGED_CODEX_PROVIDER_NAME;
   const expectedBaseUrl =
     options.expectedBaseUrl ?? buildManagedProviderBaseUrl();
+  const supportsWebsockets = options.supportsWebsockets === true;
   const now = new Date().toISOString();
 
   const content = await readConfigFileOrEmpty(configPath);
@@ -131,10 +151,18 @@ export async function setCodexProxyEnabled(
   nextContent = upsertProviderBlock(
     nextContent,
     providerName,
-    buildManagedProviderBlock(providerName, expectedBaseUrl),
+    buildManagedProviderBlock(
+      providerName,
+      expectedBaseUrl,
+      supportsWebsockets,
+    ),
   );
 
-  await writeTextFile(configPath, nextContent);
+  const configChanged =
+    canonicalizeTomlContent(content) !== canonicalizeTomlContent(nextContent);
+  if (configChanged) {
+    await writeTextFile(configPath, nextContent);
+  }
 
   if (enabled) {
     await saveCodexProxyControlState({
@@ -151,11 +179,41 @@ export async function setCodexProxyEnabled(
     }, options.controlStatePath);
   }
 
-  return readCodexProxyConfigStatus({
-    configPath,
-    providerName,
-    expectedBaseUrl,
-  });
+  return {
+    config: await readCodexProxyConfigStatus({
+      configPath,
+      providerName,
+      expectedBaseUrl,
+      supportsWebsockets,
+    }),
+    configChanged,
+    restartRequired: configChanged,
+    restartReason: configChanged
+      ? "已更新 ~/.codex/config.toml，需要重启 Codex Desktop 才能生效。"
+      : null,
+  };
+}
+
+/**
+ * 在已经接管到本地代理时，按当前激活账号同步受管 provider block 的动态字段。
+ *
+ * @param options 可选的覆盖项，主要用于测试或按账号重算 ws 配置。
+ * @returns 配置改写结果；未接管时不会落盘也不会要求重启。
+ */
+export async function syncManagedCodexProvider(
+  options: CodexProxyControlServiceOptions = {},
+): Promise<CodexConfigMutationResult> {
+  const status = await readCodexProxyConfigStatus(options);
+  if (status.currentModelProvider !== status.providerName) {
+    return {
+      config: status,
+      configChanged: false,
+      restartRequired: false,
+      restartReason: null,
+    };
+  }
+
+  return setCodexProxyEnabled(true, options);
 }
 
 /**
@@ -197,6 +255,9 @@ export function buildCodexProxyStatus(
       Number.isFinite(lastCodexRequestMs) &&
       now.getTime() - lastCodexRequestMs <= recentWindowMs,
     lastProxyClient,
+    restartRequired: gatewayState.codexConfigRestartPending,
+    restartReason: gatewayState.codexConfigRestartReason,
+    restartRequestedAt: gatewayState.codexConfigLastUpdatedAt,
   };
 }
 
@@ -262,6 +323,36 @@ export function readProviderStringValue(
     );
     if (matched) {
       return matched[1] ?? null;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * 从指定 provider block 中读取一个布尔字段。
+ *
+ * @param content 原始 TOML 文本。
+ * @param providerName provider 名称。
+ * @param key 字段名。
+ * @returns 命中的布尔值；若不存在则返回 `null`。
+ */
+export function readProviderBooleanValue(
+  content: string,
+  providerName: string,
+  key: string,
+): boolean | null {
+  const range = findProviderBlockRange(content, providerName);
+  if (!range) {
+    return null;
+  }
+
+  for (const line of range.lines) {
+    const matched = line.match(
+      new RegExp(`^\\s*${escapeRegExp(key)}\\s*=\\s*(true|false)\\s*(?:#.*)?$`),
+    );
+    if (matched) {
+      return matched[1] === "true";
     }
   }
 
@@ -348,6 +439,7 @@ export function upsertProviderBlock(
 function buildManagedProviderBlock(
   providerName: string,
   baseUrl: string,
+  supportsWebsockets: boolean,
 ): string[] {
   return [
     `[model_providers.${providerName}]`,
@@ -355,6 +447,7 @@ function buildManagedProviderBlock(
     `base_url = "${baseUrl}"`,
     'wire_api = "responses"',
     "requires_openai_auth = true",
+    `supports_websockets = ${supportsWebsockets ? "true" : "false"}`,
     "store = false",
   ];
 }
@@ -457,6 +550,16 @@ function normalizeToml(lines: string[]): string {
   }
 
   return normalized.join("\n");
+}
+
+/**
+ * 把任意 TOML 文本归一成可稳定比较的形式。
+ *
+ * @param content 原始 TOML 文本。
+ * @returns 适合做“是否真的变更”判定的文本。
+ */
+function canonicalizeTomlContent(content: string): string {
+  return normalizeToml(content.length > 0 ? content.split(/\r?\n/) : []);
 }
 
 /**

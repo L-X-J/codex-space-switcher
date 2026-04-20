@@ -9,7 +9,7 @@ import {
 } from "./config.ts";
 import { formatError, readJsonFile } from "./utils.ts";
 
-interface GatewayAccountsFile {
+export interface GatewayAccountsFile {
   includeCurrentCodexSession?: boolean;
   accounts?: GatewayAccountDefinition[];
 }
@@ -21,21 +21,22 @@ interface GatewayAccountDefinitionBase {
   enabled?: boolean;
 }
 
-interface OfficialGatewayAccountDefinition extends GatewayAccountDefinitionBase {
+export interface OfficialGatewayAccountDefinition extends GatewayAccountDefinitionBase {
   kind: "official";
   authFile?: string;
   baseUrl?: string;
 }
 
-interface ThirdPartyGatewayAccountDefinition extends GatewayAccountDefinitionBase {
+export interface ThirdPartyGatewayAccountDefinition extends GatewayAccountDefinitionBase {
   kind: "third_party";
   apiBaseUrl?: string;
   apiKey?: string;
   apiKeyEnvName?: string;
   defaultModel?: string;
+  requiresResponsesWebSocket?: boolean;
 }
 
-type GatewayAccountDefinition =
+export type GatewayAccountDefinition =
   | OfficialGatewayAccountDefinition
   | ThirdPartyGatewayAccountDefinition;
 
@@ -66,6 +67,7 @@ export interface ThirdPartyGatewayAccount extends GatewayAccountRuntimeBase {
   apiKey: string | null;
   baseUrl: string;
   defaultModel: string | null;
+  requiresResponsesWebSocket: boolean;
 }
 
 /**
@@ -194,6 +196,9 @@ async function resolveOfficialAccount(
 
   try {
     const session = await loadCodexSessionFromFile(authFile);
+    if (session.expiresAt) {
+      diagnostics.push(`登录态有效期至 ${session.expiresAt}。`);
+    }
     const displayName =
       definition.name?.trim() ||
       session.userName ||
@@ -261,5 +266,6 @@ function resolveThirdPartyAccount(
     apiKey,
     baseUrl: definition.apiBaseUrl ?? DEFAULT_THIRD_PARTY_BASE_URL,
     defaultModel: definition.defaultModel?.trim() || null,
+    requiresResponsesWebSocket: definition.requiresResponsesWebSocket === true,
   };
 }

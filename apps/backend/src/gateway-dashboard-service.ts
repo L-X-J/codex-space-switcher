@@ -1,9 +1,13 @@
 import type {
   AccountCard,
+  ActivateAccountResponse,
+  ActivateAccountPreviewResponse,
+  CodexConfigMutationResult,
   CodexProxyStatus,
   DashboardStatus,
   HealthStatus,
   ProxyClientKind,
+  RestartCodexAppResponse,
   ServerEvent,
 } from "../../../packages/shared/src/index.ts";
 import {
@@ -18,6 +22,7 @@ import {
   buildManagedProviderBaseUrl,
   readCodexProxyConfigStatus,
   setCodexProxyEnabled as applyCodexProxyEnabledChange,
+  syncManagedCodexProvider,
 } from "./codex-proxy-control-service.ts";
 import {
   loadGatewayAccounts,
@@ -33,7 +38,11 @@ import {
   deriveOfficialHealth,
   loadOfficialUsageSnapshot,
 } from "./official-account-usage-provider.ts";
-import { inspectCodexRuntime } from "./codex-runtime-inspector.ts";
+import {
+  inspectCodexRuntime,
+  startCodexApp,
+  stopCodexApp,
+} from "./codex-runtime-inspector.ts";
 import { createIdleSwitchJob } from "./state-store.ts";
 import {
   aggregateUsageTotals,
@@ -63,6 +72,9 @@ export class GatewayDashboardService {
     lastRequestClientKind: null,
     lastRequestClientLabel: null,
     lastCodexRequestAt: null,
+    codexConfigRestartPending: false,
+    codexConfigRestartReason: null,
+    codexConfigLastUpdatedAt: null,
   };
 
   private codexProxyStatus: CodexProxyStatus = {
@@ -73,6 +85,8 @@ export class GatewayDashboardService {
       currentProviderBaseUrl: null,
       configuredBaseUrl: null,
       expectedBaseUrl: buildManagedProviderBaseUrl(),
+      configuredSupportsWebsockets: null,
+      expectedSupportsWebsockets: false,
       isEnabled: false,
       diagnostics: ["等待首次配置检查。"],
     },
@@ -81,6 +95,9 @@ export class GatewayDashboardService {
     lastCodexRequestAt: null,
     isCodexTrafficRecent: false,
     lastProxyClient: null,
+    restartRequired: false,
+    restartReason: null,
+    restartRequestedAt: null,
   };
 
   private status: DashboardStatus = {
@@ -303,9 +320,9 @@ export class GatewayDashboardService {
    * 设置新的激活账号。
    *
    * @param targetAccountId 目标账号 ID。
-   * @returns 命中可用账号时返回 `true`，否则返回 `false`。
+   * @returns 切换结果；若当前代理已接管，还会附带 `config.toml` 改写结果。
    */
-  async activateAccount(targetAccountId: string): Promise<boolean> {
+  async activateAccount(targetAccountId: string): Promise<ActivateAccountResponse> {
     const runtimeAccounts = await loadGatewayAccounts(
       this.gatewayState.activeAccountId,
     );
@@ -314,7 +331,10 @@ export class GatewayDashboardService {
     );
 
     if (!target) {
-      return false;
+      return {
+        ok: false,
+        codexConfig: null,
+      };
     }
 
     this.gatewayState = {
@@ -324,7 +344,69 @@ export class GatewayDashboardService {
     };
     await saveGatewayState(this.gatewayState);
     await this.refreshAccounts();
-    return true;
+
+    const codexConfig =
+      this.codexProxyStatus.config.currentModelProvider ===
+      this.codexProxyStatus.config.providerName
+        ? await this.syncCodexProxyConfigForAccount(target)
+        : null;
+
+    return {
+      ok: true,
+      codexConfig,
+    };
+  }
+
+  /**
+   * 预览切到某个账号时，是否会顺带改写 `~/.codex/config.toml`。
+   *
+   * @param targetAccountId 目标账号 ID。
+   * @returns 预览结果；若当前不会触碰配置文件，则无需额外确认。
+   */
+  async previewActivateAccount(
+    targetAccountId: string,
+  ): Promise<ActivateAccountPreviewResponse> {
+    const runtimeAccounts = await loadGatewayAccounts(
+      this.gatewayState.activeAccountId,
+    );
+    const target = runtimeAccounts.find(
+      (account) => account.id === targetAccountId && account.isConfigured,
+    );
+
+    if (!target) {
+      return {
+        ok: false,
+        requiresConfigRewrite: false,
+        message: null,
+      };
+    }
+
+    if (
+      this.codexProxyStatus.config.currentModelProvider !==
+      this.codexProxyStatus.config.providerName
+    ) {
+      return {
+        ok: true,
+        requiresConfigRewrite: false,
+        message: null,
+      };
+    }
+
+    const previewConfig = await readCodexProxyConfigStatus({
+      supportsWebsockets:
+        target.kind === "third_party"
+          ? target.requiresResponsesWebSocket === true
+          : false,
+    });
+    const requiresConfigRewrite = previewConfig.isEnabled !== true;
+
+    return {
+      ok: true,
+      requiresConfigRewrite,
+      message: requiresConfigRewrite
+        ? `切换到 ${target.name} 会先改写 ~/.codex/config.toml，随后需要重启 Codex Desktop 才能生效。是否继续？`
+        : null,
+    };
   }
 
   /**
@@ -418,7 +500,9 @@ export class GatewayDashboardService {
    * @returns 无返回值。
    */
   async refreshCodexProxyStatus(): Promise<void> {
-    const config = await readCodexProxyConfigStatus();
+    const config = await readCodexProxyConfigStatus({
+      supportsWebsockets: await this.getExpectedCodexProxySupportsWebsockets(),
+    });
     this.codexProxyStatus = buildCodexProxyStatus(config, this.gatewayState);
     this.status = {
       ...this.status,
@@ -435,11 +519,122 @@ export class GatewayDashboardService {
    * 打开或关闭“Codex 接管到本地代理”的开关。
    *
    * @param enabled 是否启用接管。
-   * @returns 切换后的监控状态。
+   * @returns 配置改写结果；当内容实际变化时需要提示用户重启 Codex。
    */
-  async setCodexProxyEnabled(enabled: boolean): Promise<CodexProxyStatus> {
-    const config = await applyCodexProxyEnabledChange(enabled);
-    this.codexProxyStatus = buildCodexProxyStatus(config, this.gatewayState);
+  async setCodexProxyEnabled(enabled: boolean): Promise<CodexConfigMutationResult> {
+    const mutation = await applyCodexProxyEnabledChange(enabled, {
+      supportsWebsockets: await this.getExpectedCodexProxySupportsWebsockets(),
+    });
+    await this.applyCodexConfigMutation(mutation);
+    return mutation;
+  }
+
+  /**
+   * 重启本机 Codex Desktop，并在成功后清空“等待重启生效”标记。
+   *
+   * @returns 重启结果摘要。
+   */
+  async restartCodexApp(): Promise<RestartCodexAppResponse> {
+    await stopCodexApp();
+    await startCodexApp();
+
+    this.gatewayState = {
+      ...this.gatewayState,
+      codexConfigRestartPending: false,
+      codexConfigRestartReason: null,
+      codexConfigLastUpdatedAt: new Date().toISOString(),
+    };
+    await saveGatewayState(this.gatewayState);
+    await this.refreshRuntime();
+    await this.refreshCodexProxyStatus();
+
+    return {
+      ok: true,
+      message: "已触发 Codex Desktop 重启。",
+    };
+  }
+
+  /**
+   * 根据当前激活账号，推导受管 provider block 里应该写入的 ws 开关。
+   *
+   * @returns 当前路由账号期望的 `supports_websockets`。
+   */
+  private async getExpectedCodexProxySupportsWebsockets(): Promise<boolean> {
+    const activeAccount = await this.getActiveRuntimeAccount();
+    return activeAccount?.kind === "third_party"
+      ? activeAccount.requiresResponsesWebSocket === true
+      : false;
+  }
+
+  /**
+   * 当代理已接管时，按目标账号同步 `config.toml` 里的动态 provider 字段。
+   *
+   * @param account 当前激活账号。
+   * @returns 若发生了配置改写，则返回对应结果；否则返回 `null`。
+   */
+  private async syncCodexProxyConfigForAccount(
+    account: GatewayRuntimeAccount,
+  ): Promise<CodexConfigMutationResult | null> {
+    const mutation = await syncManagedCodexProvider({
+      supportsWebsockets:
+        account.kind === "third_party"
+          ? account.requiresResponsesWebSocket === true
+          : false,
+    });
+    await this.applyCodexConfigMutation(mutation);
+    return mutation;
+  }
+
+  /**
+   * 当某个账号定义被更新后，若它正承接本地代理且 Codex 已接管，则同步受管 provider 配置。
+   *
+   * @param accountId 被编辑的账号 ID。
+   * @returns 若触发了 `config.toml` 改写，则返回对应结果；否则返回 `null`。
+   */
+  async handleAccountDefinitionUpdated(
+    accountId: string,
+  ): Promise<CodexConfigMutationResult | null> {
+    await this.refreshAccounts();
+    const activeAccount = await this.getActiveRuntimeAccount();
+    if (
+      !activeAccount ||
+      activeAccount.id !== accountId ||
+      this.codexProxyStatus.config.currentModelProvider !==
+        this.codexProxyStatus.config.providerName
+    ) {
+      return null;
+    }
+
+    return this.syncCodexProxyConfigForAccount(activeAccount);
+  }
+
+  /**
+   * 把一次 `config.toml` 改写结果写回状态缓存，并广播给前端。
+   *
+   * @param mutation 配置改写结果。
+   * @returns 无返回值。
+   */
+  private async applyCodexConfigMutation(
+    mutation: CodexConfigMutationResult,
+  ): Promise<void> {
+    this.gatewayState = {
+      ...this.gatewayState,
+      codexConfigRestartPending: mutation.configChanged
+        ? mutation.restartRequired
+        : this.gatewayState.codexConfigRestartPending,
+      codexConfigRestartReason: mutation.configChanged
+        ? mutation.restartReason
+        : this.gatewayState.codexConfigRestartReason,
+      codexConfigLastUpdatedAt: mutation.configChanged
+        ? new Date().toISOString()
+        : this.gatewayState.codexConfigLastUpdatedAt,
+    };
+    await saveGatewayState(this.gatewayState);
+
+    this.codexProxyStatus = buildCodexProxyStatus(
+      mutation.config,
+      this.gatewayState,
+    );
     this.status = {
       ...this.status,
       codexProxy: this.codexProxyStatus,
@@ -449,8 +644,6 @@ export class GatewayDashboardService {
       type: "codex.status_changed",
       payload: this.status,
     });
-
-    return this.codexProxyStatus;
   }
 
   /**

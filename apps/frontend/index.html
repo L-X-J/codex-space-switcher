@@ -176,14 +176,21 @@
 
             <section class="page-view" data-page="accounts" data-active="false" aria-hidden="true">
               <section class="section-band">
-                <div class="section-heading">
+                <div class="section-heading section-heading-inline">
                   <div>
                     <p class="eyebrow">Accounts</p>
                     <h2>账号与路由</h2>
                     <p class="section-caption">
-                      统一比较累计 Token、5 小时剩余、近一周剩余和当前路由状态，不再区分官方卡片与路由列表。
+                      保持原有账号看板布局，只在这里增加一个入口按钮，通过弹窗来新增官方账号或第三方账号。
                     </p>
                   </div>
+                  <button
+                    id="accountCreateOpenButton"
+                    class="refresh-button account-add-button"
+                    type="button"
+                  >
+                    新增账号
+                  </button>
                 </div>
 
                 <div class="account-board">
@@ -234,6 +241,293 @@
           </div>
         </div>
       </main>
+    </div>
+
+    <div
+      id="accountCreateModal"
+      class="account-modal"
+      data-open="false"
+      aria-hidden="true"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="accountCreateModalTitle"
+    >
+      <div class="account-modal-card">
+        <div class="account-modal-head">
+          <div>
+            <p id="accountCreateModalEyebrow" class="eyebrow">Create Account</p>
+            <h2 id="accountCreateModalTitle">新增账号</h2>
+            <p id="accountCreateModalDescription" class="section-caption">
+              先选择账号类型，再填写对应信息。保存前都会先做一次必要校验，避免把无效账号写进路由配置。
+            </p>
+          </div>
+          <button
+            id="accountCreateCloseButton"
+            class="account-modal-close"
+            type="button"
+            aria-label="关闭新增账号弹窗"
+          >
+            ×
+          </button>
+        </div>
+
+        <div class="account-kind-switch" role="tablist" aria-label="新增账号类型">
+          <button
+            class="account-kind-tab"
+            type="button"
+            data-account-kind-target="official"
+            data-active="true"
+            role="tab"
+            aria-selected="true"
+          >
+            官方账号
+          </button>
+          <button
+            class="account-kind-tab"
+            type="button"
+            data-account-kind-target="third_party"
+            data-active="false"
+            role="tab"
+            aria-selected="false"
+          >
+            第三方账号
+          </button>
+        </div>
+
+        <section
+          class="account-form-panel"
+          data-account-kind-panel="official"
+          data-active="true"
+          aria-hidden="false"
+        >
+          <div class="card-header">
+            <div>
+              <p class="card-title">官方账号配置</p>
+              <p class="muted-text">
+                访问
+                <a
+                  class="inline-link"
+                  href="https://chatgpt.com/api/auth/session"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  chatgpt.com/api/auth/session
+                </a>
+                ，复制完整 JSON 后粘贴到这里。系统会测试 accessToken 是否可用，再保存为本地快照。
+              </p>
+            </div>
+          </div>
+          <form id="officialAccountForm" class="account-form">
+            <label class="form-field">
+              <span class="field-label">账户名称（可选）</span>
+              <input
+                id="officialAccountNameInput"
+                class="text-input"
+                type="text"
+                placeholder="留空时自动使用用户名或邮箱"
+              />
+            </label>
+            <label class="form-field">
+              <span class="field-label">Session JSON</span>
+              <textarea
+                id="officialAccountSessionInput"
+                class="text-area text-area-code"
+                spellcheck="false"
+                placeholder='请粘贴 {"accessToken":"...","account":{"id":"..."}} 这类完整返回结果'
+              ></textarea>
+            </label>
+            <div class="form-actions">
+              <button id="officialAccountSubmit" class="refresh-button" type="submit">
+                保存官方账号
+              </button>
+              <p
+                id="officialAccountFeedback"
+                class="form-feedback"
+                data-tone="neutral"
+              >
+                只会保存路由所需字段，不会额外保存 sessionToken。
+              </p>
+            </div>
+          </form>
+        </section>
+
+        <section
+          class="account-form-panel"
+          data-account-kind-panel="third_party"
+          data-active="false"
+          aria-hidden="true"
+        >
+          <div class="card-header">
+            <div>
+              <p class="card-title">第三方账号配置</p>
+              <p class="muted-text">
+                保存前会先请求你填写的 <code>/models</code>。若中转站未实现该接口，可再次点击保存以跳过本次校验。
+              </p>
+            </div>
+          </div>
+          <form id="thirdPartyAccountForm" class="account-form">
+            <label class="form-field">
+              <span class="field-label">账户名称</span>
+              <input
+                id="thirdPartyAccountNameInput"
+                class="text-input"
+                type="text"
+                placeholder="例如：OpenRouter 主账号"
+                required
+              />
+            </label>
+            <label class="form-field">
+              <span class="field-label">API Key</span>
+              <input
+                id="thirdPartyAccountApiKeyInput"
+                class="text-input"
+                type="password"
+                placeholder="sk-..."
+                required
+              />
+            </label>
+            <label class="form-field">
+              <span class="field-label">URL</span>
+              <input
+                id="thirdPartyAccountBaseUrlInput"
+                class="text-input"
+                type="url"
+                placeholder="https://api.openai.com/v1"
+                required
+              />
+            </label>
+            <label class="form-field">
+              <span class="field-label">默认模型（可选）</span>
+              <input
+                id="thirdPartyAccountDefaultModelInput"
+                class="text-input"
+                type="text"
+                placeholder="例如：gpt-5.4-mini"
+              />
+            </label>
+            <label class="check-field" for="thirdPartyAccountWsRequiredInput">
+              <input
+                id="thirdPartyAccountWsRequiredInput"
+                class="check-input"
+                type="checkbox"
+              />
+              <span class="check-copy">
+                <span class="field-label">该中转站要求 Codex 使用 WebSocket responses</span>
+                <span class="muted-text">
+                  打开后，当前账号若被路由接管，会把受管 provider 写成
+                  <code>supports_websockets = true</code>。
+                </span>
+              </span>
+            </label>
+            <div class="form-actions">
+              <button id="thirdPartyAccountSubmit" class="refresh-button" type="submit">
+                保存第三方账号
+              </button>
+              <p
+                id="thirdPartyAccountFeedback"
+                class="form-feedback"
+                data-tone="neutral"
+              >
+                保存前会先做一次连通性测试。
+              </p>
+            </div>
+          </form>
+        </section>
+      </div>
+    </div>
+
+    <div
+      id="codexRestartModal"
+      class="account-modal"
+      data-open="false"
+      aria-hidden="true"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="codexRestartModalTitle"
+    >
+      <div class="account-modal-card restart-modal-card">
+        <div class="account-modal-head">
+          <div>
+            <p class="eyebrow">Restart Required</p>
+            <h2 id="codexRestartModalTitle">需要重启 Codex</h2>
+            <p id="codexRestartModalMessage" class="section-caption">
+              配置已写入 ~/.codex/config.toml，需要重启 Codex Desktop 才能生效。
+            </p>
+          </div>
+        </div>
+
+        <div class="restart-modal-actions">
+          <button
+            id="codexRestartConfirmButton"
+            class="refresh-button"
+            type="button"
+          >
+            立即重启
+          </button>
+          <button
+            id="codexRestartDismissButton"
+            class="secondary-button"
+            type="button"
+          >
+            稍后手动重启
+          </button>
+        </div>
+
+        <p
+          id="codexRestartFeedback"
+          class="form-feedback restart-modal-feedback"
+          data-tone="warning"
+        >
+          重启前，当前 Codex 仍会继续使用旧配置。
+        </p>
+      </div>
+    </div>
+
+    <div
+      id="accountSwitchConfirmModal"
+      class="account-modal"
+      data-open="false"
+      aria-hidden="true"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="accountSwitchConfirmModalTitle"
+    >
+      <div class="account-modal-card restart-modal-card">
+        <div class="account-modal-head">
+          <div>
+            <p class="eyebrow">Confirm Switch</p>
+            <h2 id="accountSwitchConfirmModalTitle">切换前确认</h2>
+            <p id="accountSwitchConfirmMessage" class="section-caption">
+              切换到该账号会先改写 ~/.codex/config.toml，随后需要重启 Codex Desktop 才能生效。是否继续？
+            </p>
+          </div>
+        </div>
+
+        <div class="restart-modal-actions">
+          <button
+            id="accountSwitchConfirmContinueButton"
+            class="refresh-button"
+            type="button"
+          >
+            继续切换
+          </button>
+          <button
+            id="accountSwitchConfirmCancelButton"
+            class="secondary-button"
+            type="button"
+          >
+            取消
+          </button>
+        </div>
+
+        <p
+          id="accountSwitchConfirmFeedback"
+          class="form-feedback restart-modal-feedback"
+          data-tone="warning"
+        >
+          只有你确认继续后，系统才会真正写入 ~/.codex/config.toml。
+        </p>
+      </div>
     </div>
 
     <template id="usageWindowTemplate">
@@ -305,7 +599,10 @@
         </div>
         <div class="account-cell account-cell-action">
           <span class="metric-label">路由</span>
-          <button class="account-activate">切到这里</button>
+          <div class="account-action-stack">
+            <button class="account-activate">切到这里</button>
+            <button class="secondary-button account-edit" type="button">编辑</button>
+          </div>
         </div>
       </article>
     </template>
@@ -319,8 +616,20 @@
         </div>
         <div class="event-metrics">
           <div class="summary-stat">
+            <span class="metric-label">输入 Token</span>
+            <strong class="metric-value event-input-tokens"></strong>
+          </div>
+          <div class="summary-stat">
+            <span class="metric-label">Cache Token</span>
+            <strong class="metric-value event-cache-tokens"></strong>
+          </div>
+          <div class="summary-stat">
+            <span class="metric-label">输出 Token</span>
+            <strong class="metric-value event-output-tokens"></strong>
+          </div>
+          <div class="summary-stat">
             <span class="metric-label">总 Token</span>
-            <strong class="metric-value event-tokens"></strong>
+            <strong class="metric-value event-total-tokens"></strong>
           </div>
           <div class="summary-stat">
             <span class="metric-label">预计费用</span>

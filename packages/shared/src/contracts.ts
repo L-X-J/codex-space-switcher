@@ -194,6 +194,8 @@ export interface CodexProxyConfigStatus {
   currentProviderBaseUrl: string | null;
   configuredBaseUrl: string | null;
   expectedBaseUrl: string;
+  configuredSupportsWebsockets: boolean | null;
+  expectedSupportsWebsockets: boolean;
   isEnabled: boolean;
   diagnostics: string[];
 }
@@ -208,6 +210,9 @@ export interface CodexProxyStatus {
   lastCodexRequestAt: string | null;
   isCodexTrafficRecent: boolean;
   lastProxyClient: ProxyClientSnapshot | null;
+  restartRequired: boolean;
+  restartReason: string | null;
+  restartRequestedAt: string | null;
 }
 
 /**
@@ -322,10 +327,154 @@ export interface ActivateAccountRequestBody {
 }
 
 /**
+ * 描述新增官方账号的请求体。
+ */
+export interface CreateOfficialAccountRequestBody {
+  kind: "official";
+  name?: string;
+  sessionJson: string;
+}
+
+/**
+ * 描述新增第三方账号的请求体。
+ */
+export interface CreateThirdPartyAccountRequestBody {
+  kind: "third_party";
+  name: string;
+  apiKey: string;
+  apiBaseUrl: string;
+  defaultModel?: string;
+  requiresResponsesWebSocket?: boolean;
+  skipConnectivityCheck?: boolean;
+}
+
+/**
+ * 描述“新增账号”接口的统一请求体。
+ */
+export type CreateAccountRequestBody =
+  | CreateOfficialAccountRequestBody
+  | CreateThirdPartyAccountRequestBody;
+
+/**
+ * 描述新增账号成功后的返回结果。
+ */
+export interface CreateAccountResponse {
+  accountId: string;
+  accountName: string;
+  kind: AccountKind;
+  message: string;
+}
+
+/**
+ * 描述编辑官方账号的请求体。
+ */
+export interface UpdateOfficialAccountRequestBody {
+  kind: "official";
+  name?: string;
+  sessionJson: string;
+}
+
+/**
+ * 描述编辑第三方账号的请求体。
+ */
+export interface UpdateThirdPartyAccountRequestBody {
+  kind: "third_party";
+  name: string;
+  apiKey: string;
+  apiBaseUrl: string;
+  defaultModel?: string;
+  requiresResponsesWebSocket?: boolean;
+  skipConnectivityCheck?: boolean;
+}
+
+/**
+ * 描述“编辑账号”接口的统一请求体。
+ */
+export type UpdateAccountRequestBody =
+  | UpdateOfficialAccountRequestBody
+  | UpdateThirdPartyAccountRequestBody;
+
+/**
+ * 描述编辑账号成功后的返回结果。
+ */
+export interface UpdateAccountResponse {
+  accountId: string;
+  accountName: string;
+  kind: AccountKind;
+  message: string;
+  codexConfig?: CodexConfigMutationResult | null;
+}
+
+/**
+ * 描述官方账号编辑页所需的数据。
+ */
+export interface EditableOfficialAccount {
+  id: string;
+  kind: "official";
+  name: string;
+  sessionJson: string;
+}
+
+/**
+ * 描述第三方账号编辑页所需的数据。
+ */
+export interface EditableThirdPartyAccount {
+  id: string;
+  kind: "third_party";
+  name: string;
+  apiKey: string;
+  apiBaseUrl: string;
+  defaultModel: string;
+  requiresResponsesWebSocket: boolean;
+}
+
+/**
+ * 描述“读取账号编辑详情”接口的统一返回体。
+ */
+export type EditableAccountDetail =
+  | EditableOfficialAccount
+  | EditableThirdPartyAccount;
+
+/**
+ * 描述一次会触发 `~/.codex/config.toml` 刷新的操作结果。
+ */
+export interface CodexConfigMutationResult {
+  config: CodexProxyConfigStatus;
+  configChanged: boolean;
+  restartRequired: boolean;
+  restartReason: string | null;
+}
+
+/**
+ * 描述一次账号切换请求的结果。
+ */
+export interface ActivateAccountResponse {
+  ok: boolean;
+  codexConfig?: CodexConfigMutationResult | null;
+}
+
+/**
+ * 描述一次账号切换前的配置影响预览结果。
+ */
+export interface ActivateAccountPreviewResponse {
+  ok: boolean;
+  requiresConfigRewrite: boolean;
+  message: string | null;
+}
+
+/**
  * 描述前端开关“是否接管 Codex 配置”的请求体。
  */
 export interface SetCodexProxyEnabledRequestBody {
   enabled: boolean;
+}
+
+/**
+ * 描述触发 Codex Desktop 重启后的结果。
+ */
+export interface RestartCodexAppResponse {
+  ok: boolean;
+  message: string;
 }
 
 /**

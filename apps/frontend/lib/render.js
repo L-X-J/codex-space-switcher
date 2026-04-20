@@ -164,6 +164,100 @@ export function renderCodexProxy(codexProxy, elements, viewState = {}) {
 }
 
 /**
+ * 渲染“需要重启 Codex 才能生效”的确认弹窗。
+ *
+ * @param {Record<string, Element>} elements DOM 引用集合。
+ * @param {{
+ *   isOpen: boolean,
+ *   isRestarting: boolean,
+ *   reason: string | null,
+ *   feedback: string | null,
+ *   tone: string | null,
+ * }} viewState 当前弹窗状态。
+ * @returns {void}
+ */
+export function renderCodexRestartModal(elements, viewState) {
+  if (elements.codexRestartModal) {
+    elements.codexRestartModal.dataset.open = String(viewState.isOpen === true);
+    elements.codexRestartModal.setAttribute(
+      "aria-hidden",
+      String(viewState.isOpen !== true),
+    );
+  }
+
+  if (elements.codexRestartMessage) {
+    elements.codexRestartMessage.textContent =
+      viewState.reason ??
+      "配置已写入 ~/.codex/config.toml，需要重启 Codex Desktop 才能生效。";
+  }
+
+  if (elements.codexRestartConfirmButton) {
+    elements.codexRestartConfirmButton.disabled = viewState.isRestarting === true;
+    elements.codexRestartConfirmButton.textContent =
+      viewState.isRestarting === true ? "正在重启..." : "立即重启";
+  }
+
+  if (elements.codexRestartDismissButton) {
+    elements.codexRestartDismissButton.disabled = viewState.isRestarting === true;
+  }
+
+  if (elements.codexRestartFeedback) {
+    elements.codexRestartFeedback.textContent =
+      viewState.feedback ??
+      "重启前，当前 Codex 仍会继续使用旧配置。";
+    elements.codexRestartFeedback.dataset.tone = viewState.tone ?? "warning";
+  }
+}
+
+/**
+ * 渲染账号切换前的配置改写确认弹窗。
+ *
+ * @param {Record<string, Element>} elements DOM 引用集合。
+ * @param {{
+ *   isOpen: boolean,
+ *   isSubmitting: boolean,
+ *   message: string | null,
+ *   feedback: string | null,
+ *   tone: string | null,
+ * }} viewState 当前弹窗状态。
+ * @returns {void}
+ */
+export function renderAccountSwitchConfirmModal(elements, viewState) {
+  if (elements.accountSwitchConfirmModal) {
+    elements.accountSwitchConfirmModal.dataset.open = String(viewState.isOpen === true);
+    elements.accountSwitchConfirmModal.setAttribute(
+      "aria-hidden",
+      String(viewState.isOpen !== true),
+    );
+  }
+
+  if (elements.accountSwitchConfirmMessage) {
+    elements.accountSwitchConfirmMessage.textContent =
+      viewState.message ??
+      "切换到该账号会先改写 ~/.codex/config.toml，随后需要重启 Codex Desktop 才能生效。是否继续？";
+  }
+
+  if (elements.accountSwitchConfirmContinueButton) {
+    elements.accountSwitchConfirmContinueButton.disabled =
+      viewState.isSubmitting === true;
+    elements.accountSwitchConfirmContinueButton.textContent =
+      viewState.isSubmitting === true ? "正在切换..." : "继续切换";
+  }
+
+  if (elements.accountSwitchConfirmCancelButton) {
+    elements.accountSwitchConfirmCancelButton.disabled =
+      viewState.isSubmitting === true;
+  }
+
+  if (elements.accountSwitchConfirmFeedback) {
+    elements.accountSwitchConfirmFeedback.textContent =
+      viewState.feedback ??
+      "只有你确认继续后，系统才会真正写入 ~/.codex/config.toml。";
+    elements.accountSwitchConfirmFeedback.dataset.tone = viewState.tone ?? "warning";
+  }
+}
+
+/**
  * 渲染筛选下拉框。
  *
  * @param {any} usageDashboard 当前统计摘要。
@@ -234,9 +328,10 @@ export function renderUsagePanels(usageDashboard, elements) {
  * @param {any[]} accounts 当前账号卡片数组。
  * @param {Record<string, Element>} elements DOM 引用集合。
  * @param {(accountId: string) => Promise<void>} onActivate 激活账号的动作。
+ * @param {(accountId: string) => Promise<void>} onEdit 编辑账号的动作。
  * @returns {void}
  */
-export function renderAccountRows(accounts, elements, onActivate) {
+export function renderAccountRows(accounts, elements, onActivate, onEdit) {
   elements.accountsList.innerHTML = "";
 
   if (accounts.length === 0) {
@@ -249,6 +344,7 @@ export function renderAccountRows(accounts, elements, onActivate) {
     const fragment = elements.accountRowTemplate.content.cloneNode(true);
     const root = fragment.querySelector(".account-row");
     const activateButton = fragment.querySelector(".account-activate");
+    const editButton = fragment.querySelector(".account-edit");
     const health = fragment.querySelector(".health-pill");
     const primaryUsage = account.officialUsage?.primary ?? null;
     const secondaryUsage = account.officialUsage?.secondary ?? null;
@@ -283,8 +379,112 @@ export function renderAccountRows(accounts, elements, onActivate) {
     activateButton.textContent = account.isActive ? "当前路由" : "切到这里";
     activateButton.addEventListener("click", () => onActivate(account.id));
 
+    if (editButton) {
+      const isEditable = account.id !== "current-official";
+      editButton.disabled = !isEditable;
+      editButton.textContent = isEditable ? "编辑" : "内置账号";
+      if (isEditable) {
+        editButton.addEventListener("click", () => onEdit(account.id));
+      }
+    }
+
     elements.accountsList.appendChild(fragment);
   }
+}
+
+/**
+ * 渲染新增账号弹窗，以及表单的提交态与反馈文案。
+ *
+ * @param {Record<string, Element>} elements DOM 引用集合。
+ * @param {{
+ *   isOpen: boolean,
+ *   mode: "create" | "edit",
+ *   selectedKind: "official" | "third_party",
+ *   official: { pending: boolean, feedback: string, tone: string },
+ *   thirdParty: {
+ *     pending: boolean,
+ *     feedback: string,
+ *     tone: string,
+ *     awaitingConfirmation?: boolean,
+ *   },
+ * }} viewState 表单视图状态。
+ * @returns {void}
+ */
+export function renderAccountCreationForms(elements, viewState) {
+  if (elements.accountCreateModal) {
+    elements.accountCreateModal.dataset.open = String(viewState.isOpen === true);
+    elements.accountCreateModal.setAttribute(
+      "aria-hidden",
+      String(viewState.isOpen !== true),
+    );
+  }
+
+  if (elements.accountCreateCloseButton) {
+    elements.accountCreateCloseButton.disabled =
+      viewState.official.pending === true || viewState.thirdParty.pending === true;
+  }
+
+  if (elements.accountCreateModalTitle) {
+    elements.accountCreateModalTitle.textContent =
+      viewState.mode === "edit" ? "编辑账号" : "新增账号";
+  }
+
+  if (elements.accountCreateModalEyebrow) {
+    elements.accountCreateModalEyebrow.textContent =
+      viewState.mode === "edit" ? "Edit Account" : "Create Account";
+  }
+
+  if (elements.accountCreateModalDescription) {
+    elements.accountCreateModalDescription.textContent =
+      viewState.mode === "edit"
+        ? "仅允许修改该账号已有类型下的配置。若当前账号正承接本地代理，保存后可能需要重启 Codex Desktop 才能生效。"
+        : "先选择账号类型，再填写对应信息。保存前都会先做一次必要校验，避免把无效账号写进路由配置。";
+  }
+
+  for (const tab of elements.accountCreationKindTabs ?? []) {
+    const isActive = tab.dataset.accountKindTarget === viewState.selectedKind;
+    tab.dataset.active = String(isActive);
+    tab.setAttribute("aria-selected", String(isActive));
+    tab.disabled = viewState.mode === "edit" && !isActive;
+  }
+
+  for (const panel of elements.accountCreationPanels ?? []) {
+    const isActive = panel.dataset.accountKindPanel === viewState.selectedKind;
+    panel.dataset.active = String(isActive);
+    panel.setAttribute("aria-hidden", String(!isActive));
+  }
+
+  renderAccountCreationPanel(
+    elements.officialAccountSubmit,
+    [
+      elements.officialAccountNameInput,
+      elements.officialAccountSessionInput,
+    ],
+    elements.officialAccountFeedback,
+    viewState.official,
+    viewState.mode === "edit" ? "保存官方修改" : "保存官方账号",
+    viewState.mode === "edit" ? "正在更新官方账号..." : "正在校验官方账号...",
+  );
+
+  renderAccountCreationPanel(
+    elements.thirdPartyAccountSubmit,
+    [
+      elements.thirdPartyAccountNameInput,
+      elements.thirdPartyAccountApiKeyInput,
+      elements.thirdPartyAccountBaseUrlInput,
+      elements.thirdPartyAccountDefaultModelInput,
+    ],
+    elements.thirdPartyAccountFeedback,
+    viewState.thirdParty,
+    viewState.thirdParty.awaitingConfirmation === true
+      ? viewState.mode === "edit"
+        ? "确认仍然保存"
+        : "确认保存第三方账号"
+      : viewState.mode === "edit"
+        ? "保存第三方修改"
+        : "保存第三方账号",
+    viewState.mode === "edit" ? "正在更新第三方账号..." : "正在测试第三方账号...",
+  );
 }
 
 /**
@@ -310,7 +510,16 @@ export function renderUsageEvents(events, elements) {
     fragment.querySelector(".event-created-at").textContent = formatDateTime(
       event.createdAt,
     );
-    fragment.querySelector(".event-tokens").textContent = formatTokenCount(
+    fragment.querySelector(".event-input-tokens").textContent = formatTokenCount(
+      event.inputTokens,
+    );
+    fragment.querySelector(".event-cache-tokens").textContent = formatTokenCount(
+      event.cachedInputTokens,
+    );
+    fragment.querySelector(".event-output-tokens").textContent = formatTokenCount(
+      event.outputTokens,
+    );
+    fragment.querySelector(".event-total-tokens").textContent = formatTokenCount(
       event.totalTokens,
     );
     fragment.querySelector(".event-cost").textContent = formatCurrency(
@@ -415,6 +624,10 @@ function buildCodexProxyDiagnostics(codexProxy) {
     diagnostics.push("配置已经切到本地代理，但最近还没有识别到 Codex 请求头。");
   }
 
+  if (codexProxy?.restartRequired && codexProxy?.restartReason) {
+    diagnostics.push(codexProxy.restartReason);
+  }
+
   return diagnostics;
 }
 
@@ -427,6 +640,10 @@ function buildCodexProxyDiagnostics(codexProxy) {
 function buildDefaultProxyFeedback(codexProxy) {
   if (!codexProxy?.config) {
     return "等待后端返回 Codex 代理状态。";
+  }
+
+  if (codexProxy.restartRequired && codexProxy.restartReason) {
+    return codexProxy.restartReason;
   }
 
   if (codexProxy.config.isEnabled && codexProxy.isCodexTrafficRecent) {
@@ -447,6 +664,10 @@ function buildDefaultProxyFeedback(codexProxy) {
  * @returns {string}
  */
 function inferFeedbackTone(codexProxy) {
+  if (codexProxy?.restartRequired) {
+    return "warning";
+  }
+
   if (codexProxy?.config?.isEnabled && codexProxy?.isCodexTrafficRecent) {
     return "success";
   }
@@ -474,4 +695,40 @@ function buildAccountDetailText(account) {
   }
 
   return "等待首次检查。";
+}
+
+/**
+ * 渲染单个新增账号面板的按钮、输入禁用态与反馈文案。
+ *
+ * @param {HTMLButtonElement | null | undefined} submitButton 提交按钮。
+ * @param {(HTMLInputElement | HTMLTextAreaElement | null | undefined)[]} fields 输入控件。
+ * @param {HTMLElement | null | undefined} feedbackElement 反馈节点。
+ * @param {{ pending: boolean, feedback: string, tone: string }} state 当前面板状态。
+ * @param {string} idleLabel 空闲时按钮文案。
+ * @param {string} pendingLabel 提交中按钮文案。
+ * @returns {void}
+ */
+function renderAccountCreationPanel(
+  submitButton,
+  fields,
+  feedbackElement,
+  state,
+  idleLabel,
+  pendingLabel,
+) {
+  if (submitButton) {
+    submitButton.disabled = state.pending;
+    submitButton.textContent = state.pending ? pendingLabel : idleLabel;
+  }
+
+  for (const field of fields) {
+    if (field) {
+      field.disabled = state.pending;
+    }
+  }
+
+  if (feedbackElement) {
+    feedbackElement.textContent = state.feedback;
+    feedbackElement.dataset.tone = state.tone;
+  }
 }

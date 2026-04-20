@@ -60,6 +60,8 @@ wire_api = "responses"
     "http://127.0.0.1:6789/ai-router/api",
   );
   assert.equal(status.configuredBaseUrl, null);
+  assert.equal(status.configuredSupportsWebsockets, null);
+  assert.equal(status.expectedSupportsWebsockets, false);
   assert.equal(status.isEnabled, false);
 });
 
@@ -73,11 +75,12 @@ base_url = "http://127.0.0.1:6789/ai-router/api"
 wire_api = "responses"
 `);
 
-  const status = await setCodexProxyEnabled(true, {
+  const result = await setCodexProxyEnabled(true, {
     configPath: fixture.configPath,
     controlStatePath: fixture.controlStatePath,
     providerName: TEST_PROVIDER_NAME,
     expectedBaseUrl: TEST_EXPECTED_BASE_URL,
+    supportsWebsockets: true,
   });
 
   const content = await readFile(fixture.configPath, "utf8");
@@ -87,15 +90,19 @@ wire_api = "responses"
     previousModelProvider: string | null;
   };
 
-  assert.equal(status.isEnabled, true);
-  assert.equal(status.currentModelProvider, TEST_PROVIDER_NAME);
-  assert.equal(status.currentProviderBaseUrl, TEST_EXPECTED_BASE_URL);
+  assert.equal(result.configChanged, true);
+  assert.equal(result.restartRequired, true);
+  assert.equal(result.config.isEnabled, true);
+  assert.equal(result.config.currentModelProvider, TEST_PROVIDER_NAME);
+  assert.equal(result.config.currentProviderBaseUrl, TEST_EXPECTED_BASE_URL);
+  assert.equal(result.config.configuredSupportsWebsockets, true);
   assert.match(content, /model_provider = "space_switcher"/);
   assert.match(content, /\[model_providers\.space_switcher\]/);
   assert.match(
     content,
     /base_url = "http:\/\/127\.0\.0\.1:14318\/ai-router\/api"/,
   );
+  assert.match(content, /supports_websockets = true/);
   assert.equal(controlState.previousModelProvider, "aigate");
 });
 
@@ -116,7 +123,7 @@ wire_api = "responses"
     expectedBaseUrl: TEST_EXPECTED_BASE_URL,
   });
 
-  const status = await setCodexProxyEnabled(false, {
+  const result = await setCodexProxyEnabled(false, {
     configPath: fixture.configPath,
     controlStatePath: fixture.controlStatePath,
     providerName: TEST_PROVIDER_NAME,
@@ -125,13 +132,39 @@ wire_api = "responses"
 
   const content = await readFile(fixture.configPath, "utf8");
 
-  assert.equal(status.currentModelProvider, "aigate");
+  assert.equal(result.config.currentModelProvider, "aigate");
   assert.equal(
-    status.currentProviderBaseUrl,
+    result.config.currentProviderBaseUrl,
     "http://127.0.0.1:6789/ai-router/api",
   );
-  assert.equal(status.isEnabled, false);
+  assert.equal(result.config.isEnabled, false);
   assert.match(content, /model_provider = "aigate"/);
+});
+
+test("setCodexProxyEnabled 在配置内容未变化时不应要求重启", async () => {
+  const fixture = await createTempFixture(`
+model_provider = "space_switcher"
+
+[model_providers.space_switcher]
+name = "space_switcher"
+base_url = "http://127.0.0.1:14318/ai-router/api"
+wire_api = "responses"
+requires_openai_auth = true
+supports_websockets = false
+store = false
+`);
+
+  const result = await setCodexProxyEnabled(true, {
+    configPath: fixture.configPath,
+    controlStatePath: fixture.controlStatePath,
+    providerName: TEST_PROVIDER_NAME,
+    expectedBaseUrl: TEST_EXPECTED_BASE_URL,
+    supportsWebsockets: false,
+  });
+
+  assert.equal(result.configChanged, false);
+  assert.equal(result.restartRequired, false);
+  assert.equal(result.restartReason, null);
 });
 
 test("buildCodexProxyStatus 应在最近窗口内识别到 Codex 流量", () => {
@@ -144,6 +177,8 @@ test("buildCodexProxyStatus 应在最近窗口内识别到 Codex 流量", () => 
       currentProviderBaseUrl: TEST_EXPECTED_BASE_URL,
       configuredBaseUrl: TEST_EXPECTED_BASE_URL,
       expectedBaseUrl: TEST_EXPECTED_BASE_URL,
+      configuredSupportsWebsockets: false,
+      expectedSupportsWebsockets: false,
       isEnabled: true,
       diagnostics: [],
     },
@@ -155,10 +190,14 @@ test("buildCodexProxyStatus 应在最近窗口内识别到 Codex 流量", () => 
       lastRequestClientKind: "codex",
       lastRequestClientLabel: "Codex",
       lastCodexRequestAt: "2026-04-17T09:57:00.000Z",
+      codexConfigRestartPending: true,
+      codexConfigRestartReason: "需要重启 Codex Desktop。",
+      codexConfigLastUpdatedAt: "2026-04-17T09:58:00.000Z",
     },
     now,
   );
 
   assert.equal(status.isCodexTrafficRecent, true);
   assert.equal(status.lastProxyClient?.label, "Codex");
+  assert.equal(status.restartRequired, true);
 });

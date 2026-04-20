@@ -3,23 +3,33 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type {
   ActivateAccountRequestBody,
+  CreateAccountRequestBody,
+  UpdateAccountRequestBody,
   SetCodexProxyEnabledRequestBody,
   ServerEvent,
 } from "../../../packages/shared/src/index.ts";
 import { FRONTEND_ROOT, HOST, PORT } from "./config.ts";
+import { createGatewayAccount } from "./gateway-account-creation-service.ts";
+import {
+  getEditableAccountDetail,
+  updateGatewayAccount,
+} from "./gateway-account-update-service.ts";
 import {
   buildGatewayMetadataPayload,
   isGatewayMetadataRequest,
   isGatewayModelsRequest,
+  isGatewayResponsesPath,
   isGatewayResponsesRequest,
 } from "./gateway-metadata.ts";
 import { GatewayDashboardService } from "./gateway-dashboard-service.ts";
 import { GatewayProxyService } from "./gateway-proxy-service.ts";
+import { GatewayWebSocketProxyService } from "./gateway-websocket-proxy-service.ts";
 import {
   buildUsageDashboardSummary,
   listRecentUsageEvents,
 } from "./usage-dashboard-provider.ts";
 import { loadUsageEvents } from "./usage-event-store.ts";
+import { HttpError } from "./http-error.ts";
 
 /**
  * 本文件是本地控制台与代理网关的统一入口。
@@ -32,6 +42,17 @@ const ACCOUNT_REFRESH_INTERVAL_MS = 60_000;
 const sseClients = new Set<import("node:http").ServerResponse>();
 const dashboardService = new GatewayDashboardService();
 const proxyService = new GatewayProxyService({
+  getActiveAccount: async () => dashboardService.getActiveRuntimeAccount(),
+  recordGatewayRequest: async (result) => {
+    await dashboardService.recordGatewayRequest(result);
+  },
+  onUsageRecorded: async () => {
+    await dashboardService.refreshAccounts();
+    dashboardService.notifyUsageUpdated();
+  },
+});
+
+const websocketProxyService = new GatewayWebSocketProxyService({
   getActiveAccount: async () => dashboardService.getActiveRuntimeAccount(),
   recordGatewayRequest: async (result) => {
     await dashboardService.recordGatewayRequest(result);
@@ -70,15 +91,27 @@ async function main(): Promise<void> {
         return;
       }
 
-      response.writeHead(500, {
+      const statusCode = error instanceof HttpError ? error.statusCode : 500;
+      response.writeHead(statusCode, {
         "Content-Type": "application/json; charset=utf-8",
       });
       response.end(
         JSON.stringify({
           error: error instanceof Error ? error.message : String(error),
+          code: error instanceof HttpError ? error.code : null,
         }),
       );
     }
+  });
+
+  server.on("upgrade", (request, socket, head) => {
+    const url = new URL(request.url ?? "/", `http://${HOST}:${PORT}`);
+    if (isGatewayResponsesPath(url.pathname)) {
+      void websocketProxyService.handleResponsesUpgrade(request, socket, head);
+      return;
+    }
+
+    socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
   });
 
   server.listen(PORT, HOST, () => {
@@ -106,14 +139,47 @@ async function routeRequest(
     return respondJson(response, dashboardService.getAccounts());
   }
 
+  if (url.pathname === "/api/accounts" && request.method === "POST") {
+    const body = (await readJsonBody(request)) as CreateAccountRequestBody;
+    const created = await createGatewayAccount(body);
+    await dashboardService.refreshAccounts();
+    dashboardService.notifyUsageUpdated();
+    return respondJson(response, created, 201);
+  }
+
+  const accountEditMatch = url.pathname.match(/^\/api\/accounts\/([^/]+)\/edit$/);
+  if (accountEditMatch && request.method === "GET") {
+    const accountId = decodeURIComponent(accountEditMatch[1]!);
+    const detail = await getEditableAccountDetail(accountId);
+    return respondJson(response, detail);
+  }
+
+  const accountMatch = url.pathname.match(/^\/api\/accounts\/([^/]+)$/);
+  if (accountMatch && request.method === "PUT") {
+    const accountId = decodeURIComponent(accountMatch[1]!);
+    const body = (await readJsonBody(request)) as UpdateAccountRequestBody;
+    const updated = await updateGatewayAccount(accountId, body);
+    const codexConfig = await dashboardService.handleAccountDefinitionUpdated(accountId);
+    dashboardService.notifyUsageUpdated();
+    return respondJson(response, {
+      ...updated,
+      codexConfig,
+    });
+  }
+
   if (url.pathname === "/api/status" && request.method === "GET") {
     return respondJson(response, dashboardService.getStatus());
   }
 
   if (url.pathname === "/api/codex-proxy" && request.method === "POST") {
     const body = (await readJsonBody(request)) as SetCodexProxyEnabledRequestBody;
-    const status = await dashboardService.setCodexProxyEnabled(body.enabled === true);
-    return respondJson(response, status);
+    const result = await dashboardService.setCodexProxyEnabled(body.enabled === true);
+    return respondJson(response, result);
+  }
+
+  if (url.pathname === "/api/codex/restart" && request.method === "POST") {
+    const result = await dashboardService.restartCodexApp();
+    return respondJson(response, result);
   }
 
   if (url.pathname === "/api/usage-dashboard" && request.method === "GET") {
@@ -152,8 +218,8 @@ async function routeRequest(
 
   if (url.pathname === "/api/accounts/activate" && request.method === "POST") {
     const body = (await readJsonBody(request)) as ActivateAccountRequestBody;
-    const changed = await dashboardService.activateAccount(body.targetAccountId);
-    if (!changed) {
+    const result = await dashboardService.activateAccount(body.targetAccountId);
+    if (!result.ok) {
       response.writeHead(404, {
         "Content-Type": "application/json; charset=utf-8",
       });
@@ -162,7 +228,21 @@ async function routeRequest(
     }
 
     dashboardService.notifyUsageUpdated();
-    return respondJson(response, { ok: true });
+    return respondJson(response, result);
+  }
+
+  if (url.pathname === "/api/accounts/activate-preview" && request.method === "POST") {
+    const body = (await readJsonBody(request)) as ActivateAccountRequestBody;
+    const result = await dashboardService.previewActivateAccount(body.targetAccountId);
+    if (!result.ok) {
+      response.writeHead(404, {
+        "Content-Type": "application/json; charset=utf-8",
+      });
+      response.end(JSON.stringify({ error: "目标账号不存在，或当前不可用。" }));
+      return;
+    }
+
+    return respondJson(response, result);
   }
 
   if (url.pathname === "/api/events" && request.method === "GET") {
@@ -194,8 +274,9 @@ async function routeRequest(
 function respondJson(
   response: import("node:http").ServerResponse,
   payload: unknown,
+  statusCode = 200,
 ): void {
-  response.writeHead(200, {
+  response.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
   });
   response.end(JSON.stringify(payload));

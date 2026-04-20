@@ -6,6 +6,7 @@ import {
   buildGatewayRoutePaths,
   isGatewayMetadataRequest,
   isGatewayModelsRequest,
+  isGatewayResponsesPath,
   isGatewayResponsesRequest,
 } from "./gateway-metadata.ts";
 
@@ -53,4 +54,10 @@ test("buildGatewayMetadataPayload 应优先暴露 provider 风格路径", () => 
   assert.equal(payload.routes.versionedResponses, "/ai-router/api/v1/responses");
   assert.equal(payload.routes.versionedModels, "/ai-router/api/v1/models");
   assert.match(payload.message, /provider 路径/);
+});
+
+test("isGatewayResponsesPath 应识别 provider 与版本化 responses 路径", () => {
+  assert.equal(isGatewayResponsesPath("/ai-router/api/responses"), true);
+  assert.equal(isGatewayResponsesPath("/ai-router/api/v1/responses"), true);
+  assert.equal(isGatewayResponsesPath("/ai-router/api/models"), false);
 });

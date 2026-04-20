@@ -42,6 +42,10 @@ export const GATEWAY_ACCOUNTS_FILE = path.join(
   SWITCHER_HOME,
   "accounts.json",
 );
+export const GATEWAY_OFFICIAL_SESSION_DIR = path.join(
+  SWITCHER_HOME,
+  "auth",
+);
 export const GATEWAY_STATE_FILE = path.join(
   SWITCHER_HOME,
   "gateway-state.json",

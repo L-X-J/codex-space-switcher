@@ -1,11 +1,9 @@
 import type {
   ProxyClientKind,
-  UsageEventRecord,
 } from "../../../packages/shared/src/index.ts";
 import {
   appendUsageEvent,
 } from "./usage-event-store.ts";
-import { estimateModelCostUsd } from "./model-pricing.ts";
 import {
   SseUsageCollector,
   extractUsageFromPayload,
@@ -15,7 +13,9 @@ import type {
   OfficialGatewayAccount,
   ThirdPartyGatewayAccount,
 } from "./gateway-account-store.ts";
-import { createId, formatError } from "./utils.ts";
+import { detectProxyClient } from "./gateway-client-detection.ts";
+import { buildUsageEvent } from "./gateway-usage-event.ts";
+import { formatError } from "./utils.ts";
 
 interface GatewayProxyServiceOptions {
   getActiveAccount: () => Promise<GatewayRuntimeAccount | null>;
@@ -318,63 +318,6 @@ async function proxyUpstreamResponse(
 }
 
 /**
- * 根据捕获到的 usage 构造落盘事件。
- *
- * @param account 当前账号。
- * @param model 模型名。
- * @param usage 捕获到的 usage。
- * @param statusCode 上游状态码。
- * @param latencyMs 请求耗时。
- * @param createdAt 事件时间。
- * @param overrideStatus 可选覆盖状态。
- * @returns 标准化事件对象。
- */
-function buildUsageEvent(
-  account: GatewayRuntimeAccount,
-  model: string | null,
-  usage: {
-    inputTokens: number;
-    cachedInputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
-  } | null,
-  statusCode: number,
-  latencyMs: number,
-  createdAt: string,
-  overrideStatus?: string,
-): UsageEventRecord {
-  const resolvedModel = model || inferDefaultModel(account);
-  const inputTokens = usage?.inputTokens ?? 0;
-  const cachedInputTokens = usage?.cachedInputTokens ?? 0;
-  const outputTokens = usage?.outputTokens ?? 0;
-  const totalTokens =
-    usage?.totalTokens ?? Math.max(inputTokens + outputTokens, 0);
-
-  return {
-    id: createId(),
-    accountId: account.id,
-    accountName: account.name,
-    accountKind: account.kind,
-    model: resolvedModel,
-    inputTokens,
-    cachedInputTokens,
-    outputTokens,
-    totalTokens,
-    estimatedCostUsd: estimateModelCostUsd(
-      resolvedModel,
-      inputTokens,
-      cachedInputTokens,
-      outputTokens,
-    ),
-    status:
-      overrideStatus ??
-      (statusCode >= 400 ? `upstream_${statusCode}` : "completed"),
-    latencyMs,
-    createdAt,
-  };
-}
-
-/**
  * 尝试从请求体中读取模型名和 stream 标记。
  *
  * @param rawBody 原始请求体。
@@ -397,66 +340,6 @@ function parseResponsesRequestMeta(rawBody: Buffer): ResponsesRequestMeta {
 }
 
 /**
- * 基于请求头推断当前请求更像是 Codex、浏览器、curl 还是其他客户端。
- *
- * @param request Node HTTP 请求对象。
- * @returns 适合写进监控状态的客户端摘要。
- */
-function detectProxyClient(
-  request: import("node:http").IncomingMessage,
-): {
-  kind: ProxyClientKind;
-  label: string;
-  isLikelyCodex: boolean;
-} {
-  const userAgent = readHeaderValue(request, "user-agent");
-  const originator = readHeaderValue(request, "originator");
-  const stainlessPackage = readHeaderValue(request, "x-stainless-package");
-  const joined = [userAgent, originator, stainlessPackage]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-  if (/codex|openai\/codex|codex-cli/.test(joined)) {
-    return {
-      kind: "codex",
-      label: "Codex",
-      isLikelyCodex: true,
-    };
-  }
-
-  if (/curl/.test(userAgent?.toLowerCase() ?? "")) {
-    return {
-      kind: "curl",
-      label: "curl",
-      isLikelyCodex: false,
-    };
-  }
-
-  if (/mozilla|chrome|safari|firefox|edge/.test(userAgent?.toLowerCase() ?? "")) {
-    return {
-      kind: "browser",
-      label: "浏览器",
-      isLikelyCodex: false,
-    };
-  }
-
-  if (/openai|stainless/.test(joined)) {
-    return {
-      kind: "codex",
-      label: "OpenAI SDK",
-      isLikelyCodex: true,
-    };
-  }
-
-  return {
-    kind: "unknown",
-    label: userAgent?.slice(0, 36) ?? "未知客户端",
-    isLikelyCodex: false,
-  };
-}
-
-/**
  * 读取整个 HTTP 请求体。
  *
  * @param request Node HTTP 请求对象。
@@ -476,30 +359,6 @@ function readRequestBody(
     });
     request.on("error", reject);
   });
-}
-
-/**
- * 从请求头中读取单值字符串。
- *
- * @param request Node HTTP 请求对象。
- * @param headerName 头字段名。
- * @returns 归一化后的字符串值；缺失时返回 `null`。
- */
-function readHeaderValue(
-  request: import("node:http").IncomingMessage,
-  headerName: string,
-): string | null {
-  const raw = request.headers[headerName];
-  if (typeof raw === "string" && raw.trim().length > 0) {
-    return raw.trim();
-  }
-
-  if (Array.isArray(raw) && raw.length > 0) {
-    const first = raw[0]?.trim();
-    return first?.length ? first : null;
-  }
-
-  return null;
 }
 
 /**
@@ -594,18 +453,4 @@ function buildModelListPayload(modelIds: string[]) {
 export function joinUrl(baseUrl: string, pathname: string): string {
   const normalizedPath = pathname.replace(/^\/+/, "");
   return new URL(normalizedPath, `${baseUrl.replace(/\/+$/, "")}/`).toString();
-}
-
-/**
- * 为某个账号推断缺省模型名。
- *
- * @param account 当前账号。
- * @returns 可用于费用估算的模型名。
- */
-function inferDefaultModel(account: GatewayRuntimeAccount): string {
-  if (account.kind === "third_party" && account.defaultModel) {
-    return account.defaultModel;
-  }
-
-  return "gpt-5.4";
 }

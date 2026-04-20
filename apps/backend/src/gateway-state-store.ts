@@ -14,6 +14,9 @@ export interface GatewayPersistedState {
   lastRequestClientKind: ProxyClientKind | null;
   lastRequestClientLabel: string | null;
   lastCodexRequestAt: string | null;
+  codexConfigRestartPending: boolean;
+  codexConfigRestartReason: string | null;
+  codexConfigLastUpdatedAt: string | null;
 }
 
 /**
@@ -31,6 +34,9 @@ export async function loadGatewayState(): Promise<GatewayPersistedState> {
       lastRequestClientKind: null,
       lastRequestClientLabel: null,
       lastCodexRequestAt: null,
+      codexConfigRestartPending: false,
+      codexConfigRestartReason: null,
+      codexConfigLastUpdatedAt: null,
     }
   );
 }

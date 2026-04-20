@@ -1,14 +1,22 @@
 import {
   activateAccount,
+  createAccount,
+  getEditableAccount,
   getAccounts,
   getStatus,
+  previewActivateAccount,
   getUsageDashboard,
   getUsageEvents,
   refreshDashboard,
+  restartCodexApp,
   setCodexProxyEnabled,
+  updateAccount,
 } from "./lib/api.js";
 import {
+  renderAccountCreationForms,
+  renderAccountSwitchConfirmModal,
   renderAccountRows,
+  renderCodexRestartModal,
   renderCodexProxy,
   renderFilterOptions,
   renderStatus,
@@ -17,6 +25,17 @@ import {
 } from "./lib/render.js";
 
 const AVAILABLE_PAGES = new Set(["proxy", "accounts", "usage"]);
+const ACCOUNT_CREATION_TONES = {
+  neutral: "neutral",
+  success: "success",
+  error: "error",
+};
+const ACCOUNT_CREATION_DEFAULT_FEEDBACK = {
+  official: "只会保存路由所需字段，不会额外保存 sessionToken。",
+  thirdParty: "保存前会先做一次连通性测试。",
+};
+const THIRD_PARTY_VALIDATION_CONFIRMATION_CODE =
+  "third_party_validation_confirmation_required";
 
 const state = {
   accounts: [],
@@ -29,6 +48,39 @@ const state = {
   codexProxyDesiredEnabled: null,
   codexProxyFeedback: null,
   codexProxyFeedbackTone: null,
+  accountCreation: {
+    isOpen: false,
+    mode: "create",
+    targetAccountId: null,
+    selectedKind: "official",
+    official: {
+      pending: false,
+      feedback: ACCOUNT_CREATION_DEFAULT_FEEDBACK.official,
+      tone: ACCOUNT_CREATION_TONES.neutral,
+    },
+    thirdParty: {
+      pending: false,
+      feedback: ACCOUNT_CREATION_DEFAULT_FEEDBACK.thirdParty,
+      tone: ACCOUNT_CREATION_TONES.neutral,
+      awaitingConfirmation: false,
+      confirmFingerprint: null,
+    },
+  },
+  codexRestart: {
+    isOpen: false,
+    isRestarting: false,
+    reason: null,
+    feedback: null,
+    tone: "warning",
+  },
+  accountSwitchConfirm: {
+    isOpen: false,
+    isSubmitting: false,
+    targetAccountId: null,
+    message: null,
+    feedback: null,
+    tone: "warning",
+  },
 };
 
 const elements = {
@@ -63,6 +115,43 @@ const elements = {
   lastRequestModel: document.querySelector("#lastRequestModel"),
   usagePanels: document.querySelector("#usagePanels"),
   accountsList: document.querySelector("#accountsList"),
+  accountCreateOpenButton: document.querySelector("#accountCreateOpenButton"),
+  accountCreateModal: document.querySelector("#accountCreateModal"),
+  accountCreateModalEyebrow: document.querySelector("#accountCreateModalEyebrow"),
+  accountCreateModalTitle: document.querySelector("#accountCreateModalTitle"),
+  accountCreateModalDescription: document.querySelector(
+    "#accountCreateModalDescription",
+  ),
+  accountCreateCloseButton: document.querySelector("#accountCreateCloseButton"),
+  accountCreationKindTabs: Array.from(
+    document.querySelectorAll("[data-account-kind-target]"),
+  ),
+  accountCreationPanels: Array.from(
+    document.querySelectorAll("[data-account-kind-panel]"),
+  ),
+  officialAccountForm: document.querySelector("#officialAccountForm"),
+  officialAccountNameInput: document.querySelector("#officialAccountNameInput"),
+  officialAccountSessionInput: document.querySelector("#officialAccountSessionInput"),
+  officialAccountSubmit: document.querySelector("#officialAccountSubmit"),
+  officialAccountFeedback: document.querySelector("#officialAccountFeedback"),
+  thirdPartyAccountForm: document.querySelector("#thirdPartyAccountForm"),
+  thirdPartyAccountNameInput: document.querySelector("#thirdPartyAccountNameInput"),
+  thirdPartyAccountApiKeyInput: document.querySelector("#thirdPartyAccountApiKeyInput"),
+  thirdPartyAccountBaseUrlInput: document.querySelector("#thirdPartyAccountBaseUrlInput"),
+  thirdPartyAccountDefaultModelInput: document.querySelector("#thirdPartyAccountDefaultModelInput"),
+  thirdPartyAccountWsRequiredInput: document.querySelector("#thirdPartyAccountWsRequiredInput"),
+  thirdPartyAccountSubmit: document.querySelector("#thirdPartyAccountSubmit"),
+  thirdPartyAccountFeedback: document.querySelector("#thirdPartyAccountFeedback"),
+  codexRestartModal: document.querySelector("#codexRestartModal"),
+  codexRestartMessage: document.querySelector("#codexRestartModalMessage"),
+  codexRestartConfirmButton: document.querySelector("#codexRestartConfirmButton"),
+  codexRestartDismissButton: document.querySelector("#codexRestartDismissButton"),
+  codexRestartFeedback: document.querySelector("#codexRestartFeedback"),
+  accountSwitchConfirmModal: document.querySelector("#accountSwitchConfirmModal"),
+  accountSwitchConfirmMessage: document.querySelector("#accountSwitchConfirmMessage"),
+  accountSwitchConfirmContinueButton: document.querySelector("#accountSwitchConfirmContinueButton"),
+  accountSwitchConfirmCancelButton: document.querySelector("#accountSwitchConfirmCancelButton"),
+  accountSwitchConfirmFeedback: document.querySelector("#accountSwitchConfirmFeedback"),
   eventsList: document.querySelector("#eventsList"),
   usageWindowTemplate: document.querySelector("#usageWindowTemplate"),
   accountRowTemplate: document.querySelector("#accountRowTemplate"),
@@ -78,12 +167,16 @@ async function main() {
   elements.refreshButton?.addEventListener("click", handleManualRefresh);
   elements.codexProxyToggle?.addEventListener("change", handleCodexProxyToggle);
   bindPageTabs();
+  bindAccountForms();
+  bindCodexRestartModal();
+  bindAccountSwitchConfirmModal();
   elements.usageFilterSelect?.addEventListener("change", async (event) => {
     state.selectedFilterId = event.currentTarget.value;
     await refreshUsage();
   });
   window.addEventListener("hashchange", handleHashChange);
   window.addEventListener("resize", syncPageStageHeight);
+  window.addEventListener("keydown", handleWindowKeydown);
 
   await refreshAll();
   connectEvents();
@@ -150,12 +243,17 @@ async function handleCodexProxyToggle(event) {
   renderProxy();
 
   try {
-    await setCodexProxyEnabled(nextEnabled);
+    const result = await setCodexProxyEnabled(nextEnabled);
     await refreshAll();
-    state.codexProxyFeedback = nextEnabled
-      ? "已把 Codex 配置切到本地代理。"
-      : "已恢复到切换前的 provider。";
-    state.codexProxyFeedbackTone = "success";
+    state.codexProxyFeedback = result.restartRequired
+      ? result.restartReason
+      : nextEnabled
+        ? "已把 Codex 配置切到本地代理。"
+        : "已恢复到切换前的 provider。";
+    state.codexProxyFeedbackTone = result.restartRequired ? "warning" : "success";
+    if (result.restartRequired) {
+      openCodexRestartModal(result.restartReason);
+    }
   } catch (error) {
     state.codexProxyFeedback =
       error instanceof Error ? error.message : String(error);
@@ -174,8 +272,241 @@ async function handleCodexProxyToggle(event) {
  * @returns {Promise<void>}
  */
 async function handleActivateAccount(accountId) {
-  await activateAccount(accountId);
-  await refreshAll();
+  const preview = await previewActivateAccount(accountId);
+  if (preview.requiresConfigRewrite) {
+    openAccountSwitchConfirmModal(accountId, preview.message);
+    return;
+  }
+
+  await performAccountActivation(accountId);
+}
+
+/**
+ * 打开已有账号的编辑弹窗。
+ *
+ * @param {string} accountId 目标账号 ID。
+ * @returns {Promise<void>}
+ */
+async function handleEditAccount(accountId) {
+  resetAccountCreationFeedback();
+
+  try {
+    const detail = await getEditableAccount(accountId);
+    state.accountCreation.isOpen = true;
+    state.accountCreation.mode = "edit";
+    state.accountCreation.targetAccountId = accountId;
+    state.accountCreation.selectedKind = detail.kind;
+    fillAccountCreationForm(detail);
+    renderAccountCreation();
+    focusActiveAccountCreationField();
+  } catch (error) {
+    closeAccountCreationModal();
+    state.codexProxyFeedback =
+      error instanceof Error ? error.message : String(error);
+    state.codexProxyFeedbackTone = "error";
+    renderProxy();
+  }
+}
+
+/**
+ * 绑定“新增账号”表单。
+ */
+function bindAccountForms() {
+  elements.accountCreateOpenButton?.addEventListener("click", () => {
+    openAccountCreationModal("official");
+  });
+  elements.accountCreateCloseButton?.addEventListener("click", closeAccountCreationModal);
+  elements.accountCreateModal?.addEventListener("click", handleAccountModalBackdropClick);
+
+  for (const tab of elements.accountCreationKindTabs) {
+    tab.addEventListener("click", () => {
+      const nextKind = tab.dataset.accountKindTarget;
+      if (!nextKind) {
+        return;
+      }
+
+      setAccountCreationKind(nextKind);
+    });
+  }
+
+  elements.officialAccountForm?.addEventListener("submit", handleOfficialAccountCreate);
+  elements.thirdPartyAccountForm?.addEventListener(
+    "submit",
+    handleThirdPartyAccountCreate,
+  );
+
+  for (const field of [
+    elements.thirdPartyAccountNameInput,
+    elements.thirdPartyAccountApiKeyInput,
+    elements.thirdPartyAccountBaseUrlInput,
+    elements.thirdPartyAccountDefaultModelInput,
+    elements.thirdPartyAccountWsRequiredInput,
+  ]) {
+    field?.addEventListener("input", clearThirdPartyValidationConfirmation);
+    field?.addEventListener("change", clearThirdPartyValidationConfirmation);
+  }
+}
+
+/**
+ * 绑定“重启 Codex 生效”弹窗。
+ */
+function bindCodexRestartModal() {
+  elements.codexRestartConfirmButton?.addEventListener("click", handleCodexRestartConfirm);
+  elements.codexRestartDismissButton?.addEventListener("click", closeCodexRestartModal);
+  elements.codexRestartModal?.addEventListener("click", (event) => {
+    if (event.target !== elements.codexRestartModal) {
+      return;
+    }
+
+    closeCodexRestartModal();
+  });
+}
+
+/**
+ * 绑定“账号切换前确认”弹窗。
+ */
+function bindAccountSwitchConfirmModal() {
+  elements.accountSwitchConfirmContinueButton?.addEventListener(
+    "click",
+    handleAccountSwitchConfirmContinue,
+  );
+  elements.accountSwitchConfirmCancelButton?.addEventListener(
+    "click",
+    closeAccountSwitchConfirmModal,
+  );
+  elements.accountSwitchConfirmModal?.addEventListener("click", (event) => {
+    if (event.target !== elements.accountSwitchConfirmModal) {
+      return;
+    }
+
+    closeAccountSwitchConfirmModal();
+  });
+}
+
+/**
+ * 提交官方账号新增请求。
+ *
+ * @param {SubmitEvent} event 表单事件。
+ * @returns {Promise<void>}
+ */
+async function handleOfficialAccountCreate(event) {
+  event.preventDefault();
+  state.accountCreation.selectedKind = "official";
+  state.accountCreation.official.pending = true;
+  state.accountCreation.official.feedback =
+    state.accountCreation.mode === "edit"
+      ? "正在校验并更新官方账号..."
+      : "正在校验官方账号...";
+  state.accountCreation.official.tone = ACCOUNT_CREATION_TONES.neutral;
+  renderAccountCreation();
+
+  try {
+    const payload = {
+      kind: "official",
+      name: elements.officialAccountNameInput?.value ?? "",
+      sessionJson: elements.officialAccountSessionInput?.value ?? "",
+    };
+    const result =
+      state.accountCreation.mode === "edit" &&
+      state.accountCreation.targetAccountId
+        ? await updateAccount(state.accountCreation.targetAccountId, payload)
+        : await createAccount(payload);
+    if (elements.officialAccountForm) {
+      elements.officialAccountForm.reset();
+    }
+    state.accountCreation.official.feedback = result.message;
+    state.accountCreation.official.tone = ACCOUNT_CREATION_TONES.success;
+    await refreshAll();
+    if (result.codexConfig?.restartRequired) {
+      openCodexRestartModal(result.codexConfig.restartReason);
+    }
+    if (state.accountCreation.mode === "edit") {
+      closeAccountCreationModal();
+    }
+  } catch (error) {
+    state.accountCreation.official.feedback =
+      error instanceof Error ? error.message : String(error);
+    state.accountCreation.official.tone = ACCOUNT_CREATION_TONES.error;
+  } finally {
+    state.accountCreation.official.pending = false;
+    renderAccountCreation();
+  }
+}
+
+/**
+ * 提交第三方账号新增请求。
+ *
+ * @param {SubmitEvent} event 表单事件。
+ * @returns {Promise<void>}
+ */
+async function handleThirdPartyAccountCreate(event) {
+  event.preventDefault();
+  state.accountCreation.selectedKind = "third_party";
+  state.accountCreation.thirdParty.pending = true;
+  state.accountCreation.thirdParty.feedback =
+    state.accountCreation.mode === "edit"
+      ? "正在测试并更新第三方账号..."
+      : "正在测试第三方账号...";
+  state.accountCreation.thirdParty.tone = ACCOUNT_CREATION_TONES.neutral;
+  renderAccountCreation();
+
+  try {
+    const payload = buildThirdPartyAccountPayload();
+    const payloadFingerprint = buildThirdPartyPayloadFingerprint(payload);
+    payload.skipConnectivityCheck =
+      shouldSkipThirdPartyConnectivityCheck(payloadFingerprint);
+
+    const result =
+      state.accountCreation.mode === "edit" &&
+      state.accountCreation.targetAccountId
+        ? await updateAccount(state.accountCreation.targetAccountId, payload)
+        : await createAccount(payload);
+    clearThirdPartyValidationConfirmation();
+    if (elements.thirdPartyAccountForm) {
+      elements.thirdPartyAccountForm.reset();
+    }
+    state.accountCreation.thirdParty.feedback = result.message;
+    state.accountCreation.thirdParty.tone = ACCOUNT_CREATION_TONES.success;
+    await refreshAll();
+    if (result.codexConfig?.restartRequired) {
+      openCodexRestartModal(result.codexConfig.restartReason);
+    }
+    if (state.accountCreation.mode === "edit") {
+      closeAccountCreationModal();
+    }
+  } catch (error) {
+    if (isThirdPartyValidationConfirmationError(error)) {
+      armThirdPartyValidationConfirmation(
+        buildThirdPartyPayloadFingerprint(buildThirdPartyAccountPayload()),
+        error.message,
+      );
+    } else {
+      clearThirdPartyValidationConfirmation();
+      state.accountCreation.thirdParty.feedback =
+        error instanceof Error ? error.message : String(error);
+      state.accountCreation.thirdParty.tone = ACCOUNT_CREATION_TONES.error;
+    }
+  } finally {
+    state.accountCreation.thirdParty.pending = false;
+    renderAccountCreation();
+  }
+}
+
+/**
+ * 读取第三方账号表单，生成一次提交所需的请求体。
+ *
+ * @returns {any}
+ */
+function buildThirdPartyAccountPayload() {
+  return {
+    kind: "third_party",
+    name: elements.thirdPartyAccountNameInput?.value ?? "",
+    apiKey: elements.thirdPartyAccountApiKeyInput?.value ?? "",
+    apiBaseUrl: elements.thirdPartyAccountBaseUrlInput?.value ?? "",
+    defaultModel: elements.thirdPartyAccountDefaultModelInput?.value ?? "",
+    requiresResponsesWebSocket:
+      elements.thirdPartyAccountWsRequiredInput?.checked === true,
+  };
 }
 
 /**
@@ -215,6 +546,9 @@ function render() {
   renderProxy();
   renderUsage();
   renderAccounts();
+  renderAccountCreation();
+  renderAccountSwitchConfirm();
+  renderCodexRestart();
 }
 
 /**
@@ -248,8 +582,453 @@ function renderProxy() {
  * 渲染账号相关区域。
  */
 function renderAccounts() {
-  renderAccountRows(state.accounts, elements, handleActivateAccount);
+  renderAccountRows(
+    state.accounts,
+    elements,
+    handleActivateAccount,
+    handleEditAccount,
+  );
   syncPageStageHeight();
+}
+
+/**
+ * 渲染新增账号表单。
+ */
+function renderAccountCreation() {
+  renderAccountCreationForms(elements, state.accountCreation);
+  syncBodyModalState();
+}
+
+/**
+ * 渲染账号切换前确认弹窗。
+ */
+function renderAccountSwitchConfirm() {
+  renderAccountSwitchConfirmModal(elements, state.accountSwitchConfirm);
+  syncBodyModalState();
+}
+
+/**
+ * 渲染 Codex 重启确认弹窗。
+ */
+function renderCodexRestart() {
+  renderCodexRestartModal(elements, state.codexRestart);
+  syncBodyModalState();
+}
+
+/**
+ * 打开新增账号弹窗，并切换到指定账号类型。
+ *
+ * @param {"official" | "third_party"} kind 目标账号类型。
+ * @returns {void}
+ */
+function openAccountCreationModal(kind) {
+  state.accountCreation.mode = "create";
+  state.accountCreation.targetAccountId = null;
+  state.accountCreation.isOpen = true;
+  resetAccountCreationForms();
+  resetAccountCreationFeedback();
+  setAccountCreationKind(kind);
+  renderAccountCreation();
+  focusActiveAccountCreationField();
+}
+
+/**
+ * 关闭新增账号弹窗。
+ *
+ * @returns {void}
+ */
+function closeAccountCreationModal() {
+  if (isAnyAccountCreationPending()) {
+    return;
+  }
+
+  state.accountCreation.isOpen = false;
+  state.accountCreation.mode = "create";
+  state.accountCreation.targetAccountId = null;
+  renderAccountCreation();
+  window.requestAnimationFrame(() => {
+    elements.accountCreateOpenButton?.focus();
+  });
+}
+
+/**
+ * 打开 Codex 重启确认弹窗。
+ *
+ * @param {string | null | undefined} reason 提示文案。
+ */
+function openCodexRestartModal(reason) {
+  state.codexRestart.isOpen = true;
+  state.codexRestart.reason =
+    reason ?? "配置已写入 ~/.codex/config.toml，需要重启 Codex Desktop 才能生效。";
+  state.codexRestart.feedback = "重启前，当前 Codex 仍会继续使用旧配置。";
+  state.codexRestart.tone = "warning";
+  renderCodexRestart();
+}
+
+/**
+ * 打开账号切换前确认弹窗。
+ *
+ * @param {string} accountId 目标账号 ID。
+ * @param {string | null | undefined} message 提示文案。
+ */
+function openAccountSwitchConfirmModal(accountId, message) {
+  state.accountSwitchConfirm.isOpen = true;
+  state.accountSwitchConfirm.targetAccountId = accountId;
+  state.accountSwitchConfirm.message =
+    message ??
+    "切换到该账号会先改写 ~/.codex/config.toml，随后需要重启 Codex Desktop 才能生效。是否继续？";
+  state.accountSwitchConfirm.feedback =
+    "只有你确认继续后，系统才会真正写入 ~/.codex/config.toml。";
+  state.accountSwitchConfirm.tone = "warning";
+  renderAccountSwitchConfirm();
+}
+
+/**
+ * 关闭账号切换前确认弹窗。
+ */
+function closeAccountSwitchConfirmModal() {
+  if (state.accountSwitchConfirm.isSubmitting === true) {
+    return;
+  }
+
+  state.accountSwitchConfirm.isOpen = false;
+  state.accountSwitchConfirm.targetAccountId = null;
+  renderAccountSwitchConfirm();
+}
+
+/**
+ * 关闭 Codex 重启确认弹窗。
+ */
+function closeCodexRestartModal() {
+  if (state.codexRestart.isRestarting === true) {
+    return;
+  }
+
+  state.codexRestart.isOpen = false;
+  renderCodexRestart();
+}
+
+/**
+ * 切换弹窗里当前展示的账号类型。
+ *
+ * @param {string} kind 原始类型值。
+ * @returns {void}
+ */
+function setAccountCreationKind(kind) {
+  if (kind !== "official" && kind !== "third_party") {
+    return;
+  }
+
+  if (
+    state.accountCreation.mode === "edit" &&
+    kind !== state.accountCreation.selectedKind
+  ) {
+    return;
+  }
+
+  state.accountCreation.selectedKind = kind;
+  renderAccountCreation();
+}
+
+/**
+ * 把编辑详情回填到账号弹窗表单中。
+ *
+ * @param {any} detail 账号编辑详情。
+ * @returns {void}
+ */
+function fillAccountCreationForm(detail) {
+  resetAccountCreationForms();
+
+  if (detail.kind === "official") {
+    if (elements.officialAccountNameInput) {
+      elements.officialAccountNameInput.value = detail.name ?? "";
+    }
+    if (elements.officialAccountSessionInput) {
+      elements.officialAccountSessionInput.value = detail.sessionJson ?? "";
+    }
+    return;
+  }
+
+  if (elements.thirdPartyAccountNameInput) {
+    elements.thirdPartyAccountNameInput.value = detail.name ?? "";
+  }
+  if (elements.thirdPartyAccountApiKeyInput) {
+    elements.thirdPartyAccountApiKeyInput.value = detail.apiKey ?? "";
+  }
+  if (elements.thirdPartyAccountBaseUrlInput) {
+    elements.thirdPartyAccountBaseUrlInput.value = detail.apiBaseUrl ?? "";
+  }
+  if (elements.thirdPartyAccountDefaultModelInput) {
+    elements.thirdPartyAccountDefaultModelInput.value = detail.defaultModel ?? "";
+  }
+  if (elements.thirdPartyAccountWsRequiredInput) {
+    elements.thirdPartyAccountWsRequiredInput.checked =
+      detail.requiresResponsesWebSocket === true;
+  }
+}
+
+/**
+ * 重置账号弹窗内所有输入控件。
+ *
+ * @returns {void}
+ */
+function resetAccountCreationForms() {
+  elements.officialAccountForm?.reset();
+  elements.thirdPartyAccountForm?.reset();
+}
+
+/**
+ * 把账号弹窗反馈文案恢复到默认值。
+ *
+ * @returns {void}
+ */
+function resetAccountCreationFeedback() {
+  state.accountCreation.official.feedback =
+    ACCOUNT_CREATION_DEFAULT_FEEDBACK.official;
+  state.accountCreation.official.tone = ACCOUNT_CREATION_TONES.neutral;
+  clearThirdPartyValidationConfirmation();
+  state.accountCreation.thirdParty.feedback =
+    ACCOUNT_CREATION_DEFAULT_FEEDBACK.thirdParty;
+  state.accountCreation.thirdParty.tone = ACCOUNT_CREATION_TONES.neutral;
+}
+
+/**
+ * 撤销第三方表单当前已获得的“跳过 /models 校验”确认态。
+ *
+ * @returns {void}
+ */
+function clearThirdPartyValidationConfirmation() {
+  const shouldResetFeedback =
+    state.accountCreation.thirdParty.awaitingConfirmation === true &&
+    state.accountCreation.thirdParty.pending !== true;
+  state.accountCreation.thirdParty.awaitingConfirmation = false;
+  state.accountCreation.thirdParty.confirmFingerprint = null;
+  if (shouldResetFeedback) {
+    state.accountCreation.thirdParty.feedback =
+      ACCOUNT_CREATION_DEFAULT_FEEDBACK.thirdParty;
+    state.accountCreation.thirdParty.tone = ACCOUNT_CREATION_TONES.neutral;
+    renderAccountCreation();
+  }
+}
+
+/**
+ * 在首次 `/models` 探测失败后，记录一次“用户可再次点击保存继续”的确认态。
+ *
+ * @param {string} fingerprint 当前表单内容指纹。
+ * @param {string} message 展示给用户的提醒文案。
+ * @returns {void}
+ */
+function armThirdPartyValidationConfirmation(fingerprint, message) {
+  state.accountCreation.thirdParty.awaitingConfirmation = true;
+  state.accountCreation.thirdParty.confirmFingerprint = fingerprint;
+  state.accountCreation.thirdParty.feedback = message;
+  state.accountCreation.thirdParty.tone = "warning";
+}
+
+/**
+ * 判断当前提交是否已经拿到用户对“跳过 /models 测试”的再次确认。
+ *
+ * @param {string} fingerprint 当前表单内容指纹。
+ * @returns {boolean}
+ */
+function shouldSkipThirdPartyConnectivityCheck(fingerprint) {
+  return (
+    state.accountCreation.thirdParty.awaitingConfirmation === true &&
+    state.accountCreation.thirdParty.confirmFingerprint === fingerprint
+  );
+}
+
+/**
+ * 为第三方表单生成一次稳定指纹，避免用户改了内容后仍沿用旧确认态。
+ *
+ * @param {any} payload 当前请求体。
+ * @returns {string}
+ */
+function buildThirdPartyPayloadFingerprint(payload) {
+  return JSON.stringify({
+    mode: state.accountCreation.mode,
+    targetAccountId: state.accountCreation.targetAccountId,
+    name: payload.name ?? "",
+    apiKey: payload.apiKey ?? "",
+    apiBaseUrl: payload.apiBaseUrl ?? "",
+    defaultModel: payload.defaultModel ?? "",
+    requiresResponsesWebSocket: payload.requiresResponsesWebSocket === true,
+  });
+}
+
+/**
+ * 判断某次提交失败是否属于“再次点击保存即可继续”的软确认场景。
+ *
+ * @param {unknown} error 请求异常。
+ * @returns {boolean}
+ */
+function isThirdPartyValidationConfirmationError(error) {
+  return (
+    error instanceof Error &&
+    error.code === THIRD_PARTY_VALIDATION_CONFIRMATION_CODE
+  );
+}
+
+/**
+ * 处理弹窗背景点击，支持点击遮罩关闭。
+ *
+ * @param {MouseEvent} event 鼠标事件。
+ * @returns {void}
+ */
+function handleAccountModalBackdropClick(event) {
+  if (event.target !== elements.accountCreateModal) {
+    return;
+  }
+
+  closeAccountCreationModal();
+}
+
+/**
+ * 处理全局快捷键，目前仅支持 Esc 关闭弹窗。
+ *
+ * @param {KeyboardEvent} event 键盘事件。
+ * @returns {void}
+ */
+function handleWindowKeydown(event) {
+  if (event.key !== "Escape") {
+    return;
+  }
+
+  if (state.codexRestart.isOpen === true) {
+    closeCodexRestartModal();
+    return;
+  }
+
+  if (state.accountSwitchConfirm.isOpen === true) {
+    closeAccountSwitchConfirmModal();
+    return;
+  }
+
+  if (state.accountCreation.isOpen === true) {
+    closeAccountCreationModal();
+  }
+}
+
+/**
+ * 在弹窗打开后，把焦点放到当前面板里最合理的第一个输入框。
+ *
+ * @returns {void}
+ */
+function focusActiveAccountCreationField() {
+  window.requestAnimationFrame(() => {
+    const field =
+      state.accountCreation.selectedKind === "official"
+        ? elements.officialAccountNameInput
+        : elements.thirdPartyAccountNameInput;
+    field?.focus();
+  });
+}
+
+/**
+ * 判断当前是否有新增账号请求还在进行中。
+ *
+ * @returns {boolean}
+ */
+function isAnyAccountCreationPending() {
+  return (
+    state.accountCreation.official.pending === true ||
+    state.accountCreation.thirdParty.pending === true
+  );
+}
+
+/**
+ * 请求立即重启 Codex Desktop。
+ *
+ * @returns {Promise<void>}
+ */
+async function handleCodexRestartConfirm() {
+  let restartSucceeded = false;
+  state.codexRestart.isRestarting = true;
+  state.codexRestart.feedback = "正在请求关闭并重新拉起 Codex Desktop ...";
+  state.codexRestart.tone = "warning";
+  renderCodexRestart();
+
+  try {
+    const result = await restartCodexApp();
+    state.codexRestart.feedback = result.message;
+    state.codexRestart.tone = "success";
+    await refreshAll();
+    state.codexProxyFeedback = result.message;
+    state.codexProxyFeedbackTone = "success";
+    restartSucceeded = true;
+  } catch (error) {
+    state.codexRestart.feedback =
+      error instanceof Error ? error.message : String(error);
+    state.codexRestart.tone = "error";
+    renderCodexRestart();
+  } finally {
+    state.codexRestart.isRestarting = false;
+    if (restartSucceeded) {
+      closeCodexRestartModal();
+      return;
+    }
+    renderCodexRestart();
+  }
+}
+
+/**
+ * 在切换前确认弹窗里继续执行账号切换。
+ *
+ * @returns {Promise<void>}
+ */
+async function handleAccountSwitchConfirmContinue() {
+  const targetAccountId = state.accountSwitchConfirm.targetAccountId;
+  if (!targetAccountId) {
+    return;
+  }
+
+  let switchSucceeded = false;
+  state.accountSwitchConfirm.isSubmitting = true;
+  state.accountSwitchConfirm.feedback = "正在切换账号，并同步写入 ~/.codex/config.toml ...";
+  state.accountSwitchConfirm.tone = "warning";
+  renderAccountSwitchConfirm();
+
+  try {
+    await performAccountActivation(targetAccountId);
+    switchSucceeded = true;
+  } catch (error) {
+    state.accountSwitchConfirm.feedback =
+      error instanceof Error ? error.message : String(error);
+    state.accountSwitchConfirm.tone = "error";
+    renderAccountSwitchConfirm();
+  } finally {
+    state.accountSwitchConfirm.isSubmitting = false;
+    if (switchSucceeded) {
+      closeAccountSwitchConfirmModal();
+      return;
+    }
+    renderAccountSwitchConfirm();
+  }
+}
+
+/**
+ * 真正执行一次账号切换，并在需要时继续弹出“请重启 Codex”提示。
+ *
+ * @param {string} accountId 目标账号 ID。
+ * @returns {Promise<void>}
+ */
+async function performAccountActivation(accountId) {
+  const result = await activateAccount(accountId);
+  await refreshAll();
+  if (result.codexConfig?.restartRequired) {
+    openCodexRestartModal(result.codexConfig.restartReason);
+  }
+}
+
+/**
+ * 根据当前是否存在任意打开的弹窗，统一切换 body 的滚动锁定。
+ */
+function syncBodyModalState() {
+  document.body.dataset.modalOpen = String(
+    state.accountCreation.isOpen === true ||
+      state.accountSwitchConfirm.isOpen === true ||
+      state.codexRestart.isOpen === true,
+  );
 }
 
 /**

@@ -15,6 +15,7 @@
 - 同时兼容 `/ai-router/api/v1/responses` 与 `/ai-router/api/v1/models`
 - 支持当前官方登录态自动接入，并优先显示真实用户名 / 邮箱
 - 支持额外配置多个官方账号快照
+- 支持直接粘贴 `https://chatgpt.com/api/auth/session` 返回结果来新增官方账号
 - 支持接入第三方 OpenAI-compatible API
 - 展示官方账号状态看板：
   - 账号健康状态
@@ -110,6 +111,21 @@ npm run dev
 
 - `CODEX_SPACE_SWITCHER_HOME/accounts.json`
 
+现在控制台页面也支持直接新增账号：
+
+- 官方账号：访问 `https://chatgpt.com/api/auth/session`，把完整 JSON 粘贴到“新增官方账号”表单
+- 第三方账号：填写名称、API Key、URL，保存前会先请求一次 `/models` 做可用性测试；若中转站未实现该接口，可再次确认后跳过这一步
+
+其中官方账号的 `/api/auth/session` 返回结果可以直接用，但当前项目只会提取：
+
+- `accessToken`
+- `account.id`
+- `user.name`
+- `user.email`
+- `expires`
+
+也就是说，它足够支撑本地代理转发与额度查询；但因为这里没有 `refresh_token`，所以过期后需要重新粘贴一次登录态。
+
 示例：
 
 ```json
@@ -137,6 +153,8 @@ npm run dev
 ### 多官方账号怎么准备
 
 当前版本不接管网页登录流程，多官方账号依赖你自己保留不同账号的 `auth.json` 快照。
+
+如果你不想自己手动保存 `auth.json`，也可以直接用前端“新增官方账号”里的粘贴方式。保存后，项目会把 `/api/auth/session` 精简成只包含必要字段的本地快照文件，再写入 `accounts.json`。
 
 一个常见做法是：
 

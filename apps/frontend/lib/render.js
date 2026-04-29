@@ -297,9 +297,10 @@ export function renderUsagePanels(usageDashboard, elements) {
   }
 
   for (const windowSummary of [
-    usageDashboard.cumulative,
+    usageDashboard.today,
     usageDashboard.last5Hours,
     usageDashboard.last7Days,
+    usageDashboard.cumulative,
   ]) {
     const fragment = elements.usageWindowTemplate.content.cloneNode(true);
     fragment.querySelector(".usage-window-title").textContent = windowSummary.label;

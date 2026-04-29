@@ -147,6 +147,9 @@ test("应能按账号类型筛选并聚合累计 totals", () => {
   assert.equal(summary.cumulative.totals.requests, 2);
   assert.equal(summary.cumulative.totals.inputTokens, 3000);
   assert.equal(summary.cumulative.totals.outputTokens, 800);
+  // today 窗口：now=2026-04-17T07:00:00Z（北京时间 15:00），当天零点之后的官方事件只有 evt-1
+  assert.equal(summary.today.totals.requests, 1);
+  assert.equal(summary.today.totals.inputTokens, 1000);
   assert.equal(summary.last5Hours.totals.requests, 1);
   assert.equal(summary.last7Days.totals.requests, 2);
 });

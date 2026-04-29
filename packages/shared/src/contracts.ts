@@ -348,6 +348,7 @@ export interface UsageDashboardSummary {
   selectedFilterId: string;
   filters: UsageFilterOption[];
   cumulative: UsageDashboardWindow;
+  today: UsageDashboardWindow;
   last5Hours: UsageDashboardWindow;
   last7Days: UsageDashboardWindow;
 }

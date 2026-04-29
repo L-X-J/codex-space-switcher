@@ -82,6 +82,9 @@ export function buildUsageDashboardSummary(
   const selectedFilter =
     filters.find((filter) => filter.id === selectedFilterId) ?? filters[0]!;
   const filteredEvents = events.filter((event) => matchesFilter(event, selectedFilter));
+  // 当天零点，按本地时区计算
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
   const last5HoursStart = new Date(now.getTime() - 5 * 60 * 60 * 1000);
   const last7DaysStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
@@ -90,6 +93,15 @@ export function buildUsageDashboardSummary(
     selectedFilterId: selectedFilter.id,
     filters,
     cumulative: buildWindow("累计用量", filteredEvents, accounts, now),
+    today: buildWindow(
+      "今天",
+      filteredEvents.filter(
+        (event) => new Date(event.createdAt).getTime() >= todayStart.getTime(),
+      ),
+      accounts,
+      now,
+      todayStart,
+    ),
     last5Hours: buildWindow(
       "最近 5 小时",
       filteredEvents.filter(

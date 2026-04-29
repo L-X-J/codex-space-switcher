@@ -13,7 +13,10 @@ import {
   listGatewayAccountDefinitions,
   saveOfficialSessionSnapshot,
 } from "./gateway-account-config-store.ts";
-import type { OfficialGatewayAccount } from "./gateway-account-store.ts";
+import {
+  resolveThirdPartyApiProtocol,
+  type OfficialGatewayAccount,
+} from "./gateway-account-store.ts";
 import { OFFICIAL_CODEX_BASE_URL } from "./config.ts";
 import { HttpError } from "./http-error.ts";
 import { loadOfficialUsageSnapshot } from "./official-account-usage-provider.ts";
@@ -130,6 +133,7 @@ async function createThirdPartyGatewayAccount(
     typeof input.apiBaseUrl === "string" ? input.apiBaseUrl : "",
   );
   const billingRule = normalizeThirdPartyBillingRule(input.billingRule);
+  const apiProtocol = resolveThirdPartyApiProtocol(input.apiProtocol);
   await validateThirdPartyAccount({
     apiBaseUrl,
     apiKey,
@@ -149,11 +153,13 @@ async function createThirdPartyGatewayAccount(
     kind: "third_party",
     apiBaseUrl,
     apiKey,
+    apiProtocol,
     defaultModel:
       typeof input.defaultModel === "string"
         ? input.defaultModel.trim() || undefined
         : undefined,
-    requiresResponsesWebSocket: input.requiresResponsesWebSocket === true,
+    requiresResponsesWebSocket:
+      apiProtocol === "responses" && input.requiresResponsesWebSocket === true,
     billingRule,
   });
 

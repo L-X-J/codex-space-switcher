@@ -26,6 +26,7 @@ import {
   syncManagedCodexProvider,
 } from "./codex-proxy-control-service.ts";
 import {
+  accountAllowsResponsesWebSocket,
   loadGatewayAccounts,
   pickActiveGatewayAccountId,
   type GatewayRuntimeAccount,
@@ -239,6 +240,11 @@ export class GatewayDashboardService {
           statusLabel = "缺少 API Key";
         } else {
           statusLabel = "第三方路由可用";
+          rawDiagnostics.push(
+            account.apiProtocol === "chat_completions"
+              ? "上游协议：Chat Completions；本地代理会转换 Codex Responses SSE。"
+              : "上游协议：Responses；本地代理将透明转发请求。",
+          );
           thirdPartyBillingRule = account.billingRule ?? null;
           thirdPartyBudgetSnapshot = buildThirdPartyBudgetSnapshot(
             accountEvents,
@@ -431,7 +437,7 @@ export class GatewayDashboardService {
     const previewConfig = await readCodexProxyConfigStatus({
       supportsWebsockets:
         target.kind === "third_party"
-          ? target.requiresResponsesWebSocket === true
+          ? accountAllowsResponsesWebSocket(target)
           : false,
     });
     const requiresConfigRewrite = previewConfig.isEnabled !== true;
@@ -598,7 +604,7 @@ export class GatewayDashboardService {
   private async getExpectedCodexProxySupportsWebsockets(): Promise<boolean> {
     const activeAccount = await this.getActiveRuntimeAccount();
     return activeAccount?.kind === "third_party"
-      ? activeAccount.requiresResponsesWebSocket === true
+      ? accountAllowsResponsesWebSocket(activeAccount)
       : false;
   }
 
@@ -614,7 +620,7 @@ export class GatewayDashboardService {
     const mutation = await syncManagedCodexProvider({
       supportsWebsockets:
         account.kind === "third_party"
-          ? account.requiresResponsesWebSocket === true
+          ? accountAllowsResponsesWebSocket(account)
           : false,
     });
     await this.applyCodexConfigMutation(mutation);

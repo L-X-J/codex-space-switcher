@@ -1,5 +1,6 @@
 import type {
   AccountKind,
+  ThirdPartyApiProtocol,
   ThirdPartyBillingRule,
 } from "../../../packages/shared/src/index.ts";
 import type { CodexSession } from "./codex-session-provider.ts";
@@ -35,6 +36,7 @@ export interface ThirdPartyGatewayAccountDefinition extends GatewayAccountDefini
   apiBaseUrl?: string;
   apiKey?: string;
   apiKeyEnvName?: string;
+  apiProtocol?: ThirdPartyApiProtocol;
   defaultModel?: string;
   requiresResponsesWebSocket?: boolean;
   billingRule?: ThirdPartyBillingRule;
@@ -70,6 +72,7 @@ export interface ThirdPartyGatewayAccount extends GatewayAccountRuntimeBase {
   kind: "third_party";
   apiKey: string | null;
   baseUrl: string;
+  apiProtocol: ThirdPartyApiProtocol;
   defaultModel: string | null;
   requiresResponsesWebSocket: boolean;
   billingRule: ThirdPartyBillingRule | null;
@@ -270,8 +273,41 @@ function resolveThirdPartyAccount(
     rawDiagnostics: diagnostics,
     apiKey,
     baseUrl: definition.apiBaseUrl ?? DEFAULT_THIRD_PARTY_BASE_URL,
+    apiProtocol: resolveThirdPartyApiProtocol(definition.apiProtocol),
     defaultModel: definition.defaultModel?.trim() || null,
-    requiresResponsesWebSocket: definition.requiresResponsesWebSocket === true,
+    requiresResponsesWebSocket: accountAllowsResponsesWebSocket(definition),
     billingRule: definition.billingRule ?? null,
   };
+}
+
+/**
+ * 归一化第三方上游协议。
+ * 历史配置没有该字段，必须继续按 Responses 透传处理，避免升级后旧账号行为变化。
+ *
+ * @param protocol 配置文件或前端表单传入的协议标记。
+ * @returns 可被代理层稳定分支使用的协议值。
+ */
+export function resolveThirdPartyApiProtocol(
+  protocol: ThirdPartyApiProtocol | undefined,
+): ThirdPartyApiProtocol {
+  return protocol === "chat_completions" ? "chat_completions" : "responses";
+}
+
+/**
+ * 判断第三方账号是否允许把 Codex provider 写成 WebSocket Responses。
+ * Chat Completions 适配账号必须始终停留在 HTTP SSE 入口，否则 Codex 会绕过本地协议转换。
+ *
+ * @param definition 第三方账号静态定义。
+ * @returns 当前账号期望的 `supports_websockets`。
+ */
+export function accountAllowsResponsesWebSocket(
+  definition: Pick<
+    ThirdPartyGatewayAccountDefinition,
+    "apiProtocol" | "requiresResponsesWebSocket"
+  >,
+): boolean {
+  return (
+    resolveThirdPartyApiProtocol(definition.apiProtocol) === "responses" &&
+    definition.requiresResponsesWebSocket === true
+  );
 }

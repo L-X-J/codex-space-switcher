@@ -14,10 +14,11 @@ import {
   saveOfficialSessionSnapshot,
   updateGatewayAccountDefinition,
 } from "./gateway-account-config-store.ts";
-import type {
-  OfficialGatewayAccount,
-  OfficialGatewayAccountDefinition,
-  ThirdPartyGatewayAccountDefinition,
+import {
+  resolveThirdPartyApiProtocol,
+  type OfficialGatewayAccount,
+  type OfficialGatewayAccountDefinition,
+  type ThirdPartyGatewayAccountDefinition,
 } from "./gateway-account-store.ts";
 import { AUTH_FILE, OFFICIAL_CODEX_BASE_URL } from "./config.ts";
 import { HttpError } from "./http-error.ts";
@@ -54,8 +55,10 @@ export async function getEditableAccountDetail(
     name: definition.name?.trim() || definition.id,
     apiKey: definition.apiKey ?? "",
     apiBaseUrl: definition.apiBaseUrl ?? "",
+    apiProtocol: resolveThirdPartyApiProtocol(definition.apiProtocol),
     defaultModel: definition.defaultModel ?? "",
     requiresResponsesWebSocket:
+      resolveThirdPartyApiProtocol(definition.apiProtocol) === "responses" &&
       definition.requiresResponsesWebSocket === true,
     billingRule: definition.billingRule ?? null,
   };
@@ -186,6 +189,7 @@ async function updateThirdPartyGatewayAccount(
     typeof input.apiBaseUrl === "string" ? input.apiBaseUrl : "",
   );
   const billingRule = normalizeThirdPartyBillingRule(input.billingRule);
+  const apiProtocol = resolveThirdPartyApiProtocol(input.apiProtocol);
   await validateThirdPartyAccount({
     apiBaseUrl,
     apiKey,
@@ -197,11 +201,13 @@ async function updateThirdPartyGatewayAccount(
     name: accountName,
     apiBaseUrl,
     apiKey,
+    apiProtocol,
     defaultModel:
       typeof input.defaultModel === "string"
         ? input.defaultModel.trim() || undefined
         : undefined,
-    requiresResponsesWebSocket: input.requiresResponsesWebSocket === true,
+    requiresResponsesWebSocket:
+      apiProtocol === "responses" && input.requiresResponsesWebSocket === true,
     billingRule,
   };
   await updateGatewayAccountDefinition(definition.id, nextDefinition);

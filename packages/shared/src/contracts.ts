@@ -9,6 +9,8 @@ export type HealthStatus = "healthy" | "warning" | "exhausted" | "error";
 
 export type AccountKind = "official" | "third_party";
 
+export type ThirdPartyApiProtocol = "responses" | "chat_completions";
+
 export type ProxyClientKind = "codex" | "curl" | "browser" | "unknown";
 
 export type SwitchJobStage =
@@ -396,6 +398,7 @@ export interface CreateThirdPartyAccountRequestBody {
   name: string;
   apiKey: string;
   apiBaseUrl: string;
+  apiProtocol?: ThirdPartyApiProtocol;
   defaultModel?: string;
   requiresResponsesWebSocket?: boolean;
   billingRule?: ThirdPartyBillingRule;
@@ -436,6 +439,7 @@ export interface UpdateThirdPartyAccountRequestBody {
   name: string;
   apiKey: string;
   apiBaseUrl: string;
+  apiProtocol?: ThirdPartyApiProtocol;
   defaultModel?: string;
   requiresResponsesWebSocket?: boolean;
   billingRule?: ThirdPartyBillingRule;
@@ -479,6 +483,7 @@ export interface EditableThirdPartyAccount {
   name: string;
   apiKey: string;
   apiBaseUrl: string;
+  apiProtocol: ThirdPartyApiProtocol;
   defaultModel: string;
   requiresResponsesWebSocket: boolean;
   billingRule: ThirdPartyBillingRule | null;

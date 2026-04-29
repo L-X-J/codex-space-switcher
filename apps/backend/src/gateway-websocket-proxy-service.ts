@@ -89,6 +89,32 @@ export class GatewayWebSocketProxyService {
       return;
     }
 
+    if (
+      account.kind === "third_party" &&
+      account.apiProtocol === "chat_completions"
+    ) {
+      const message =
+        "当前第三方账号通过 Chat Completions 适配 Responses SSE，不支持 WebSocket upgrade。请在控制台刷新或重写 Codex 接管配置，使 supports_websockets=false 后重启 Codex。";
+      await this.options.recordGatewayRequest({
+        requestAt,
+        model,
+        statusText: message,
+        clientKind: client.kind,
+        clientLabel: client.label,
+        isLikelyCodex: client.isLikelyCodex,
+      });
+      await this.recordUsageEvent(
+        account,
+        model,
+        400,
+        requestAt,
+        Date.now() - startedAt,
+        "websocket_not_supported_for_chat_completions",
+      );
+      writeHttpError(socket, 400, message);
+      return;
+    }
+
     try {
       const upstreamUrl = buildResponsesWebSocketUrl(account.baseUrl, request.url ?? "/");
       const handshake = await openUpstreamWebSocketHandshake({
@@ -710,6 +736,10 @@ function writeHttpError(
  * @returns 对应状态文本。
  */
 function httpStatusText(statusCode: number): string {
+  if (statusCode === 400) {
+    return "Bad Request";
+  }
+
   if (statusCode === 503) {
     return "Service Unavailable";
   }

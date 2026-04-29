@@ -486,6 +486,8 @@ export function renderAccountCreationForms(elements, viewState) {
       elements.thirdPartyAccountApiKeyInput,
       elements.thirdPartyAccountBaseUrlInput,
       elements.thirdPartyAccountDefaultModelInput,
+      elements.thirdPartyAccountPresetInput,
+      elements.thirdPartyAccountApiProtocolInput,
       elements.thirdPartyAccountInputPriceInput,
       elements.thirdPartyAccountOutputPriceInput,
       elements.thirdPartyAccountCachePriceInput,
@@ -749,7 +751,7 @@ function formatBudgetMeta(budgetWindow) {
  * 渲染单个新增账号面板的按钮、输入禁用态与反馈文案。
  *
  * @param {HTMLButtonElement | null | undefined} submitButton 提交按钮。
- * @param {(HTMLInputElement | HTMLTextAreaElement | null | undefined)[]} fields 输入控件。
+ * @param {(HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null | undefined)[]} fields 输入控件。
  * @param {HTMLElement | null | undefined} feedbackElement 反馈节点。
  * @param {{ pending: boolean, feedback: string, tone: string }} state 当前面板状态。
  * @param {string} idleLabel 空闲时按钮文案。

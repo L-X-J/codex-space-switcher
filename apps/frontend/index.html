@@ -362,10 +362,35 @@
               <p class="card-title">第三方账号配置</p>
               <p class="muted-text">
                 保存前会先请求你填写的 <code>/models</code>。若中转站未实现该接口，可再次点击保存以跳过本次校验。
+                选择 MiMo Token Plan 预设时，系统会让 Codex 仍走本地 Responses 入口，并在代理层适配到 Chat Completions。
               </p>
             </div>
           </div>
           <form id="thirdPartyAccountForm" class="account-form">
+            <div class="form-grid form-grid-2">
+              <label class="form-field">
+                <span class="field-label">快速预设</span>
+                <select
+                  id="thirdPartyAccountPresetInput"
+                  class="filter-select text-select"
+                >
+                  <option value="custom">自定义第三方账号</option>
+                  <option value="mimo-token-cn">MiMo Token Plan · CN</option>
+                  <option value="mimo-token-sgp">MiMo Token Plan · SGP</option>
+                  <option value="mimo-token-ams">MiMo Token Plan · AMS</option>
+                </select>
+              </label>
+              <label class="form-field">
+                <span class="field-label">上游协议</span>
+                <select
+                  id="thirdPartyAccountApiProtocolInput"
+                  class="filter-select text-select"
+                >
+                  <option value="responses">Responses API</option>
+                  <option value="chat_completions">Chat Completions</option>
+                </select>
+              </label>
+            </div>
             <label class="form-field">
               <span class="field-label">账户名称</span>
               <input
@@ -382,7 +407,7 @@
                 id="thirdPartyAccountApiKeyInput"
                 class="text-input"
                 type="password"
-                placeholder="sk-..."
+                placeholder="sk-... 或 tp-..."
                 required
               />
             </label>
@@ -497,7 +522,7 @@
                 <span class="field-label">该中转站要求 Codex 使用 WebSocket responses</span>
                 <span class="muted-text">
                   打开后，当前账号若被路由接管，会把受管 provider 写成
-                  <code>supports_websockets = true</code>。
+                  <code>supports_websockets = true</code>。Chat Completions 适配账号会强制关闭该选项。
                 </span>
               </span>
             </label>

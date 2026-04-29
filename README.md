@@ -17,7 +17,7 @@
 
 这个项目的目标很直接：
 
-**用一个本地优先、以 WebSocket `/responses` 代理为核心的薄网关，把多账号切换、账号状态查看、token 统计和费用估算统一到一个控制台里。**
+**用一个本地优先、以 Codex `/responses` 代理为核心的薄网关，把多账号切换、账号状态查看、token 统计和费用估算统一到一个控制台里。**
 
 ## 核心特性
 
@@ -79,24 +79,25 @@
 
 当前重点集中在：
 
-- WebSocket `/responses`
+- HTTP SSE `/responses`
+- 兼容 WebSocket upgrade 的第三方 Responses 透传
+- Chat Completions 第三方上游的 Responses SSE 适配
 - `/models`
-- WebSocket upgrade 透传
 - 账号路由
 - 本地 usage 审计
 
 这不是能力不足，而是设计选择。边界清晰，反而更适合本地部署和长期维护。
 
-### 以 WebSocket 代理为核心路径
+### 以 Responses 代理为核心路径
 
-当前项目的主路径不是传统的长轮询式 HTTP 转发，而是围绕 WebSocket `/responses` 来做代理和 usage 捕获。
+当前项目的主路径围绕 Codex 的 `/responses` provider 入口做代理和 usage 捕获。
 
 这样做有两个直接意义：
 
 - 更贴近 Codex 当前的实时交互模式
-- 在理论上可以减少重复握手与连接建立成本，请求路径更短，响应也可能更快
+- 对官方 Responses、第三方 Responses 和第三方 Chat Completions 上游都能保持同一个本地入口
 
-这里刻意写成“理论上”，因为速度收益仍然取决于上游实现、网络环境和账号来源；但从架构上看，持续连接的 WebSocket 代理确实更适合这类高频交互场景。
+当第三方账号本身支持 Responses WebSocket 时，项目仍可按账号开启 `supports_websockets`；当账号只支持 Chat Completions（例如 MiMo Token Plan）时，本地代理会强制走 HTTP SSE，并在代理层完成 Responses 与 Chat Completions 的互转。
 
 ## 功能概览
 
@@ -109,7 +110,8 @@
   - Codex App
   - Codex CLI
 - 本地代理：
-  - `GET /ai-router/api/responses` WebSocket upgrade
+  - `POST /ai-router/api/responses` HTTP SSE
+  - `GET /ai-router/api/responses` WebSocket upgrade（仅适用于 Responses 上游）
   - `GET /ai-router/api/models`
   - 兼容 `/ai-router/api/v1/*`
 - 官方账号支持：
@@ -118,6 +120,8 @@
   - 支持直接粘贴 `https://chatgpt.com/api/auth/session` 返回结果创建账号
 - 第三方账号支持：
   - 接入 OpenAI-compatible API
+  - 支持 `apiProtocol = "responses"` 透明转发
+  - 支持 `apiProtocol = "chat_completions"` 的 Responses SSE 适配
   - 创建时可选 `/models` 可用性校验
 - Codex 接管能力：
   - 可直接管理 `~/.codex/config.toml`
@@ -161,7 +165,7 @@ Codex App / Codex CLI
 当前实现可以理解为三层：
 
 1. 控制台前端：负责状态展示、账号管理和操作入口
-2. 本地薄网关：负责以 WebSocket `/responses` 为核心的代理、`/models` 暴露与账号路由
+2. 本地薄网关：负责以 `/responses` 为核心的代理、协议适配、`/models` 暴露与账号路由
 3. 本地状态与审计存储：负责账号定义、代理状态、Codex 接管状态和 usage 事件持久化
 
 ## 快速开始
@@ -197,8 +201,10 @@ name = "space_switcher"
 base_url = "http://127.0.0.1:14318/ai-router/api"
 wire_api = "responses"
 requires_openai_auth = true
-supports_websockets = true
+supports_websockets = false
 ```
+
+`supports_websockets` 会由控制台按当前激活账号自动同步：官方账号和 Chat Completions 适配账号会写成 `false`，只有明确需要 WebSocket Responses 的第三方账号才写成 `true`。
 
 控制台里也提供了接管入口，可以直接改写 `~/.codex/config.toml`，并展示：
 
@@ -234,10 +240,50 @@ supports_websockets = true
       "name": "第三方账号",
       "kind": "third_party",
       "apiBaseUrl": "https://api.openai.com/v1",
+      "apiProtocol": "responses",
       "apiKeyEnvName": "SPACE_SWITCHER_THIRD_PARTY_KEY",
       "defaultModel": "gpt-5.4-mini"
+    },
+    {
+      "id": "mimo-token-plan-cn",
+      "name": "MiMo Token Plan CN",
+      "kind": "third_party",
+      "apiBaseUrl": "https://token-plan-cn.xiaomimimo.com/v1",
+      "apiProtocol": "chat_completions",
+      "apiKeyEnvName": "MIMO_TOKEN_PLAN_KEY",
+      "defaultModel": "mimo-v2.5-pro",
+      "requiresResponsesWebSocket": false
     }
   ]
+}
+```
+
+### MiMo Token Plan 接入
+
+MiMo Token Plan 的 OpenAI 兼容入口当前是 Chat Completions 协议，不直接兼容新版 Codex 的 Responses API。你不需要降级 Codex，也不需要把 Codex 配成 `wire_api = "chat"`；本项目会让 Codex 继续连接本地 `wire_api = "responses"` provider，再由代理层转换到 MiMo `/chat/completions`。
+
+控制台新增第三方账号时可直接选择 “MiMo Token Plan · CN / SGP / AMS” 预设：
+
+- API Key 使用订阅页提供的 `tp-xxxxx`
+- 默认模型为 `mimo-v2.5-pro`
+- OpenAI 兼容地址可选：
+  - `https://token-plan-cn.xiaomimimo.com/v1`
+  - `https://token-plan-sgp.xiaomimimo.com/v1`
+  - `https://token-plan-ams.xiaomimimo.com/v1`
+- 账号协议会保存为 `"chat_completions"`
+- Codex 接管配置会保持 `wire_api = "responses"` 且 `supports_websockets = false`
+
+如果你手写 `accounts.json`，关键字段如下：
+
+```json
+{
+  "id": "mimo-token-plan-cn",
+  "name": "MiMo Token Plan CN",
+  "kind": "third_party",
+  "apiBaseUrl": "https://token-plan-cn.xiaomimimo.com/v1",
+  "apiProtocol": "chat_completions",
+  "apiKey": "tp-xxxxx",
+  "defaultModel": "mimo-v2.5-pro"
 }
 ```
 
@@ -301,6 +347,8 @@ npm test
 
 - 官方额度接口解析
 - `/responses` usage 捕获
+- Responses 与 Chat Completions 协议转换
+- Chat Completions fake 上游集成
 - WebSocket usage 捕获
 - Codex provider 的 `supports_websockets` 配置联动
 - 费用估算
@@ -313,5 +361,5 @@ npm test
 - 多官方账号仍依赖登录态快照或手动粘贴会话
 - 费用为基于模型定价规则的估算值，不等同于官方精确账单
 - 第三方账号没有统一额度标准，当前主要关注代理用量审计，不伪造统一余额接口
-- 当前设计明显偏向 WebSocket `/responses` 主路径，其他协议形态不是项目重点
+- Chat Completions 适配优先覆盖文本、函数工具、`local_shell` 和 `apply_patch`；MCP namespace、web_search、image_generation 等能力尚未完整适配
 - 网关刻意保持轻量，不做复杂补偿、多轮编排或通用平台代理层

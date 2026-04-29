@@ -36,6 +36,29 @@ const ACCOUNT_CREATION_DEFAULT_FEEDBACK = {
 };
 const THIRD_PARTY_VALIDATION_CONFIRMATION_CODE =
   "third_party_validation_confirmation_required";
+const THIRD_PARTY_PRESETS = {
+  "mimo-token-cn": {
+    name: "MiMo Token Plan CN",
+    apiBaseUrl: "https://token-plan-cn.xiaomimimo.com/v1",
+    apiProtocol: "chat_completions",
+    defaultModel: "mimo-v2.5-pro",
+    apiKeyPlaceholder: "tp-xxxxx",
+  },
+  "mimo-token-sgp": {
+    name: "MiMo Token Plan SGP",
+    apiBaseUrl: "https://token-plan-sgp.xiaomimimo.com/v1",
+    apiProtocol: "chat_completions",
+    defaultModel: "mimo-v2.5-pro",
+    apiKeyPlaceholder: "tp-xxxxx",
+  },
+  "mimo-token-ams": {
+    name: "MiMo Token Plan AMS",
+    apiBaseUrl: "https://token-plan-ams.xiaomimimo.com/v1",
+    apiProtocol: "chat_completions",
+    defaultModel: "mimo-v2.5-pro",
+    apiKeyPlaceholder: "tp-xxxxx",
+  },
+};
 
 const state = {
   accounts: [],
@@ -135,6 +158,8 @@ const elements = {
   officialAccountSubmit: document.querySelector("#officialAccountSubmit"),
   officialAccountFeedback: document.querySelector("#officialAccountFeedback"),
   thirdPartyAccountForm: document.querySelector("#thirdPartyAccountForm"),
+  thirdPartyAccountPresetInput: document.querySelector("#thirdPartyAccountPresetInput"),
+  thirdPartyAccountApiProtocolInput: document.querySelector("#thirdPartyAccountApiProtocolInput"),
   thirdPartyAccountNameInput: document.querySelector("#thirdPartyAccountNameInput"),
   thirdPartyAccountApiKeyInput: document.querySelector("#thirdPartyAccountApiKeyInput"),
   thirdPartyAccountBaseUrlInput: document.querySelector("#thirdPartyAccountBaseUrlInput"),
@@ -340,8 +365,18 @@ function bindAccountForms() {
     "submit",
     handleThirdPartyAccountCreate,
   );
+  elements.thirdPartyAccountPresetInput?.addEventListener(
+    "change",
+    handleThirdPartyPresetChange,
+  );
+  elements.thirdPartyAccountApiProtocolInput?.addEventListener(
+    "change",
+    handleThirdPartyProtocolChange,
+  );
 
   for (const field of [
+    elements.thirdPartyAccountPresetInput,
+    elements.thirdPartyAccountApiProtocolInput,
     elements.thirdPartyAccountNameInput,
     elements.thirdPartyAccountApiKeyInput,
     elements.thirdPartyAccountBaseUrlInput,
@@ -553,8 +588,11 @@ function buildThirdPartyAccountPayload() {
     name: elements.thirdPartyAccountNameInput?.value ?? "",
     apiKey: elements.thirdPartyAccountApiKeyInput?.value ?? "",
     apiBaseUrl: elements.thirdPartyAccountBaseUrlInput?.value ?? "",
+    apiProtocol:
+      elements.thirdPartyAccountApiProtocolInput?.value ?? "responses",
     defaultModel: elements.thirdPartyAccountDefaultModelInput?.value ?? "",
     requiresResponsesWebSocket:
+      elements.thirdPartyAccountApiProtocolInput?.value !== "chat_completions" &&
       elements.thirdPartyAccountWsRequiredInput?.checked === true,
     billingRule:
       Object.keys(billingRule).length > 0 ? billingRule : undefined,
@@ -648,6 +686,7 @@ function renderAccounts() {
  */
 function renderAccountCreation() {
   renderAccountCreationForms(elements, state.accountCreation);
+  syncThirdPartyProtocolDependentFields();
   syncBodyModalState();
 }
 
@@ -783,6 +822,112 @@ function setAccountCreationKind(kind) {
 }
 
 /**
+ * 应用第三方账号预设，尤其是 MiMo Token Plan 的 Chat Completions 协议与区域地址。
+ *
+ * @param {Event} event 下拉框 change 事件。
+ * @returns {void}
+ */
+function handleThirdPartyPresetChange(event) {
+  const preset = THIRD_PARTY_PRESETS[event.currentTarget.value];
+  if (!preset) {
+    syncThirdPartyProtocolDependentFields();
+    return;
+  }
+
+  if (
+    elements.thirdPartyAccountNameInput &&
+    !elements.thirdPartyAccountNameInput.value
+  ) {
+    elements.thirdPartyAccountNameInput.value = preset.name;
+  }
+  if (elements.thirdPartyAccountBaseUrlInput) {
+    elements.thirdPartyAccountBaseUrlInput.value = preset.apiBaseUrl;
+  }
+  if (elements.thirdPartyAccountDefaultModelInput) {
+    elements.thirdPartyAccountDefaultModelInput.value = preset.defaultModel;
+  }
+  if (elements.thirdPartyAccountApiProtocolInput) {
+    elements.thirdPartyAccountApiProtocolInput.value = preset.apiProtocol;
+  }
+  if (elements.thirdPartyAccountApiKeyInput) {
+    elements.thirdPartyAccountApiKeyInput.placeholder = preset.apiKeyPlaceholder;
+  }
+
+  state.accountCreation.thirdParty.feedback =
+    "MiMo Token Plan 使用 tp-xxxxx API Key；Codex 无需降级，代理会自动把 Responses SSE 适配到 Chat Completions。";
+  state.accountCreation.thirdParty.tone = ACCOUNT_CREATION_TONES.neutral;
+  syncThirdPartyProtocolDependentFields();
+  renderAccountCreation();
+}
+
+/**
+ * 根据上游协议切换 WebSocket 选项可用性。
+ *
+ * @returns {void}
+ */
+function handleThirdPartyProtocolChange() {
+  if (elements.thirdPartyAccountPresetInput) {
+    elements.thirdPartyAccountPresetInput.value = inferThirdPartyPreset({
+      apiBaseUrl: elements.thirdPartyAccountBaseUrlInput?.value ?? "",
+      apiProtocol: elements.thirdPartyAccountApiProtocolInput?.value ?? "responses",
+      defaultModel: elements.thirdPartyAccountDefaultModelInput?.value ?? "",
+    });
+  }
+
+  syncThirdPartyProtocolDependentFields();
+  renderAccountCreation();
+}
+
+/**
+ * Chat Completions 适配必须经由 HTTP SSE，不能让 Codex 走 WebSocket 隧道。
+ *
+ * @returns {void}
+ */
+function syncThirdPartyProtocolDependentFields() {
+  const isChatProtocol =
+    elements.thirdPartyAccountApiProtocolInput?.value === "chat_completions";
+  const isPending = state.accountCreation.thirdParty.pending === true;
+
+  if (elements.thirdPartyAccountWsRequiredInput) {
+    if (isChatProtocol) {
+      elements.thirdPartyAccountWsRequiredInput.checked = false;
+    }
+    elements.thirdPartyAccountWsRequiredInput.disabled =
+      isPending || isChatProtocol;
+  }
+
+  if (elements.thirdPartyAccountApiKeyInput) {
+    elements.thirdPartyAccountApiKeyInput.placeholder = isChatProtocol
+      ? "tp-xxxxx"
+      : "sk-...";
+  }
+}
+
+/**
+ * 根据编辑详情或当前表单值推断应该选中的第三方预设。
+ *
+ * @param {any} detail 第三方账号详情或表单快照。
+ * @returns {string}
+ */
+function inferThirdPartyPreset(detail) {
+  const apiBaseUrl = detail.apiBaseUrl ?? "";
+  const apiProtocol = detail.apiProtocol ?? "responses";
+  const defaultModel = detail.defaultModel ?? "";
+
+  for (const [presetId, preset] of Object.entries(THIRD_PARTY_PRESETS)) {
+    if (
+      apiBaseUrl === preset.apiBaseUrl &&
+      apiProtocol === preset.apiProtocol &&
+      (!defaultModel || defaultModel === preset.defaultModel)
+    ) {
+      return presetId;
+    }
+  }
+
+  return "custom";
+}
+
+/**
  * 把编辑详情回填到账号弹窗表单中。
  *
  * @param {any} detail 账号编辑详情。
@@ -809,6 +954,13 @@ function fillAccountCreationForm(detail) {
   }
   if (elements.thirdPartyAccountBaseUrlInput) {
     elements.thirdPartyAccountBaseUrlInput.value = detail.apiBaseUrl ?? "";
+  }
+  if (elements.thirdPartyAccountApiProtocolInput) {
+    elements.thirdPartyAccountApiProtocolInput.value =
+      detail.apiProtocol ?? "responses";
+  }
+  if (elements.thirdPartyAccountPresetInput) {
+    elements.thirdPartyAccountPresetInput.value = inferThirdPartyPreset(detail);
   }
   if (elements.thirdPartyAccountDefaultModelInput) {
     elements.thirdPartyAccountDefaultModelInput.value = detail.defaultModel ?? "";
@@ -841,6 +993,7 @@ function fillAccountCreationForm(detail) {
     elements.thirdPartyAccountWsRequiredInput.checked =
       detail.requiresResponsesWebSocket === true;
   }
+  syncThirdPartyProtocolDependentFields();
 }
 
 /**
@@ -851,6 +1004,7 @@ function fillAccountCreationForm(detail) {
 function resetAccountCreationForms() {
   elements.officialAccountForm?.reset();
   elements.thirdPartyAccountForm?.reset();
+  syncThirdPartyProtocolDependentFields();
 }
 
 /**
@@ -927,6 +1081,7 @@ function buildThirdPartyPayloadFingerprint(payload) {
     name: payload.name ?? "",
     apiKey: payload.apiKey ?? "",
     apiBaseUrl: payload.apiBaseUrl ?? "",
+    apiProtocol: payload.apiProtocol ?? "responses",
     defaultModel: payload.defaultModel ?? "",
     requiresResponsesWebSocket: payload.requiresResponsesWebSocket === true,
     billingRule: payload.billingRule ?? null,

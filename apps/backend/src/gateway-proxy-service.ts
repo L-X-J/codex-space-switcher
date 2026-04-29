@@ -7,6 +7,7 @@ import {
 import {
   SseUsageCollector,
   extractUsageFromPayload,
+  type CapturedUsage,
 } from "./response-usage-capture.ts";
 import type {
   GatewayRuntimeAccount,
@@ -16,6 +17,12 @@ import type {
 import { detectProxyClient } from "./gateway-client-detection.ts";
 import { buildUsageEvent } from "./gateway-usage-event.ts";
 import { formatError } from "./utils.ts";
+import { joinUrl } from "./gateway-url.ts";
+import {
+  dispatchChatCompletionsResponsesRequest,
+} from "./chat-completions-upstream-service.ts";
+
+export { joinUrl } from "./gateway-url.ts";
 
 interface GatewayProxyServiceOptions {
   getActiveAccount: () => Promise<GatewayRuntimeAccount | null>;
@@ -35,6 +42,13 @@ interface ResponsesRequestMeta {
   stream: boolean;
 }
 
+interface UpstreamDispatchResult {
+  response: Response;
+  upstreamStatusCode: number;
+  usagePromise?: Promise<CapturedUsage | null>;
+  resolvedModel?: string | null;
+}
+
 const OFFICIAL_MODELS = [
   "gpt-5.4",
   "gpt-5.4-mini",
@@ -44,7 +58,7 @@ const OFFICIAL_MODELS = [
 
 /**
  * 本文件负责把本地 `/responses` 请求代理到当前激活账号。
- * 首版保持薄网关原则：只做账号切换、透明转发和最小 usage 捕获，不做协议补偿。
+ * 官方账号与 Responses 第三方账号保持透明转发；Chat Completions 第三方账号会交给专门适配器转换协议。
  */
 export class GatewayProxyService {
   constructor(private readonly options: GatewayProxyServiceOptions) {}
@@ -81,19 +95,28 @@ export class GatewayProxyService {
     }
 
     try {
-      const upstreamResponse = await this.dispatchResponsesRequest(
+      const upstreamResult = await this.dispatchResponsesRequest(
         account,
         rawBody,
         meta.stream,
       );
-      const usage = await proxyUpstreamResponse(response, upstreamResponse, meta.stream);
-      const statusText = upstreamResponse.ok
-        ? `${account.name} 返回 ${upstreamResponse.status}`
-        : `${account.name} 失败 ${upstreamResponse.status}`;
+      const proxiedUsage = await proxyUpstreamResponse(
+        response,
+        upstreamResult.response,
+        meta.stream,
+      );
+      const usage = upstreamResult.usagePromise
+        ? await upstreamResult.usagePromise
+        : proxiedUsage;
+      const statusText =
+        upstreamResult.upstreamStatusCode < 400
+          ? `${account.name} 返回 ${upstreamResult.upstreamStatusCode}`
+          : `${account.name} 失败 ${upstreamResult.upstreamStatusCode}`;
+      const usageModel = upstreamResult.resolvedModel ?? meta.model;
 
       await this.options.recordGatewayRequest({
         requestAt,
-        model: meta.model,
+        model: usageModel,
         statusText,
         clientKind: client.kind,
         clientLabel: client.label,
@@ -101,7 +124,14 @@ export class GatewayProxyService {
       });
 
       await appendUsageEvent(
-        buildUsageEvent(account, meta.model, usage, upstreamResponse.status, Date.now() - startedAt, requestAt),
+        buildUsageEvent(
+          account,
+          usageModel,
+          usage,
+          upstreamResult.upstreamStatusCode,
+          Date.now() - startedAt,
+          requestAt,
+        ),
       );
       await this.options.onUsageRecorded();
     } catch (error) {
@@ -187,9 +217,17 @@ export class GatewayProxyService {
     account: GatewayRuntimeAccount,
     rawBody: Buffer,
     stream: boolean,
-  ): Promise<Response> {
+  ): Promise<UpstreamDispatchResult> {
     if (account.kind === "official") {
-      return dispatchOfficialResponsesRequest(account, rawBody, stream);
+      const response = await dispatchOfficialResponsesRequest(
+        account,
+        rawBody,
+        stream,
+      );
+      return {
+        response,
+        upstreamStatusCode: response.status,
+      };
     }
 
     return dispatchThirdPartyResponsesRequest(account, rawBody, stream);
@@ -247,8 +285,12 @@ async function dispatchThirdPartyResponsesRequest(
   account: ThirdPartyGatewayAccount,
   rawBody: Buffer,
   stream: boolean,
-): Promise<Response> {
-  return fetch(joinUrl(account.baseUrl, "/responses"), {
+): Promise<UpstreamDispatchResult> {
+  if (account.apiProtocol === "chat_completions") {
+    return dispatchChatCompletionsResponsesRequest(account, rawBody);
+  }
+
+  const response = await fetch(joinUrl(account.baseUrl, "/responses"), {
     method: "POST",
     headers: {
       Authorization: `Bearer ${account.apiKey}`,
@@ -257,6 +299,11 @@ async function dispatchThirdPartyResponsesRequest(
     },
     body: rawBody,
   });
+
+  return {
+    response,
+    upstreamStatusCode: response.status,
+  };
 }
 
 /**
@@ -441,16 +488,4 @@ function buildModelListPayload(modelIds: string[]) {
       owned_by: "openai",
     })),
   };
-}
-
-/**
- * 规范化拼接基础 URL 与路径。
- *
- * @param baseUrl 基础 URL。
- * @param pathname 目标路径。
- * @returns 拼接后的完整 URL。
- */
-export function joinUrl(baseUrl: string, pathname: string): string {
-  const normalizedPath = pathname.replace(/^\/+/, "");
-  return new URL(normalizedPath, `${baseUrl.replace(/\/+$/, "")}/`).toString();
 }

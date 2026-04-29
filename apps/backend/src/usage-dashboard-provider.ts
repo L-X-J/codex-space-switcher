@@ -7,6 +7,7 @@ import type {
   UsageFilterOption,
 } from "../../../packages/shared/src/index.ts";
 import { estimateUsageEventCostUsd } from "./model-pricing.ts";
+import { calculateTokenRatePerSecond } from "./token-rate.ts";
 
 /**
  * 本文件负责把代理事件聚合成前端看板所需的筛选结果。
@@ -148,6 +149,10 @@ export function listRecentUsageEvents(
     .map((event) => ({
       ...event,
       estimatedCostUsd: resolveEventCostUsd(event, accountsById),
+      tokenRatePerSecond: calculateTokenRatePerSecond(
+        event.outputTokens,
+        event.latencyMs,
+      ),
     }))
     .sort(
       (left, right) =>
@@ -203,7 +208,7 @@ export function createEmptyUsageTotals(): AccountUsageTotals {
 }
 
 /**
- * 计算一个统计窗口的加权 token 速率。
+ * 计算一个统计窗口的加权输出 token 速率。
  *
  * @param totals 已聚合的 token 和耗时数据。
  * @returns token/秒；没有有效耗时时返回 0。
@@ -211,11 +216,7 @@ export function createEmptyUsageTotals(): AccountUsageTotals {
 function calculateWindowTokenRatePerSecond(
   totals: AccountUsageTotals,
 ): number {
-  if (totals.totalTokens <= 0 || totals.totalLatencyMs <= 0) {
-    return 0;
-  }
-
-  return totals.totalTokens / (totals.totalLatencyMs / 1000);
+  return calculateTokenRatePerSecond(totals.outputTokens, totals.totalLatencyMs);
 }
 
 /**

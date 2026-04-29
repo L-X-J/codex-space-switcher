@@ -563,19 +563,19 @@ export function renderUsageEvents(events, elements) {
 }
 
 /**
- * 为旧版审计记录补算 token 速率。
+ * 为旧版审计记录补算输出 token 速率。
  *
  * @param {any} event 已落盘的代理请求事件。
  * @returns {number} token/秒；缺少有效耗时时返回 0。
  */
 function calculateFallbackTokenRate(event) {
-  const totalTokens = Number(event?.totalTokens ?? 0);
+  const outputTokens = Number(event?.outputTokens ?? 0);
   const latencyMs = Number(event?.latencyMs ?? 0);
-  if (!Number.isFinite(totalTokens) || !Number.isFinite(latencyMs) || latencyMs <= 0) {
+  if (!Number.isFinite(outputTokens) || !Number.isFinite(latencyMs) || latencyMs <= 0) {
     return 0;
   }
 
-  return Math.max(totalTokens, 0) / (latencyMs / 1000);
+  return Math.max(outputTokens, 0) / (latencyMs / 1000);
 }
 
 /**

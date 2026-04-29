@@ -54,3 +54,28 @@ test("SSE collector 应优先保留 total_tokens 更大的累计值", () => {
     totalTokens: 400,
   });
 });
+
+test("SSE collector 应在输出 delta 到达时触发计时回调", () => {
+  let outputStartCount = 0;
+  const collector = new SseUsageCollector({
+    onOutputStarted: () => {
+      outputStartCount += 1;
+    },
+  });
+
+  collector.pushChunk(
+    new TextEncoder().encode(
+      [
+        'data: {"type":"response.created","response":{"status":"in_progress"}}',
+        "",
+        'data: {"type":"response.output_text.delta","delta":"你"}',
+        "",
+        'data: {"type":"response.output_text.delta","delta":"好"}',
+        "",
+      ].join("\n"),
+    ),
+  );
+  collector.finish();
+
+  assert.equal(outputStartCount, 2);
+});

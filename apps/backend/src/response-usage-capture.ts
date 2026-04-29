@@ -10,6 +10,10 @@ export interface CapturedUsage {
   totalTokens: number;
 }
 
+interface SseUsageCollectorOptions {
+  onOutputStarted?: () => void;
+}
+
 /**
  * 从完整 JSON 响应体中提取 token 用量。
  *
@@ -39,6 +43,8 @@ export class SseUsageCollector {
   private buffer = "";
 
   private best: CapturedUsage | null = null;
+
+  constructor(private readonly options: SseUsageCollectorOptions = {}) {}
 
   /**
    * 喂入一段原始 SSE 字节，并尝试提取最新 usage。
@@ -106,6 +112,9 @@ export class SseUsageCollector {
     const data = dataLines.join("\n");
     try {
       const payload = JSON.parse(data);
+      if (isOutputDeltaPayload(payload)) {
+        this.options.onOutputStarted?.();
+      }
       const usage = extractUsageFromPayload(payload);
       if (usage && shouldReplaceUsage(this.best, usage)) {
         this.best = usage;
@@ -114,6 +123,31 @@ export class SseUsageCollector {
       // 某些帧只承载文本片段，不包含 JSON usage，这里直接忽略。
     }
   }
+}
+
+/**
+ * 判断事件是否表示模型已经开始输出内容。
+ *
+ * @param payload 已解析的响应事件。
+ * @returns 是输出 delta 时返回 `true`。
+ */
+export function isOutputDeltaPayload(payload: unknown): boolean {
+  const unwrapped = unwrapPayload(payload);
+  if (!unwrapped) {
+    return false;
+  }
+
+  const payloadType =
+    typeof unwrapped["type"] === "string" ? unwrapped["type"] : null;
+  if (
+    payloadType !== "response.output_text.delta" &&
+    payloadType !== "response.function_call_arguments.delta"
+  ) {
+    return false;
+  }
+
+  const delta = unwrapped["delta"];
+  return typeof delta !== "string" || delta.length > 0;
 }
 
 /**

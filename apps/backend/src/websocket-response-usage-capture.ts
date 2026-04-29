@@ -1,5 +1,8 @@
 import type { CapturedUsage } from "./response-usage-capture.ts";
-import { extractUsageFromPayload } from "./response-usage-capture.ts";
+import {
+  extractUsageFromPayload,
+  isOutputDeltaPayload,
+} from "./response-usage-capture.ts";
 
 /**
  * 本文件负责从服务端发回的 WebSocket 数据帧中提取 `/responses` usage。
@@ -28,6 +31,8 @@ export class WebSocketUsageCollector {
   private readonly emittedResponseKeys = new Set<string>();
 
   private hasEmittedFinalMessage = false;
+
+  constructor(private readonly options: WebSocketUsageCollectorOptions = {}) {}
 
   /**
    * 喂入一段来自上游服务端的原始 WebSocket 字节。
@@ -157,7 +162,11 @@ export class WebSocketUsageCollector {
   ): void {
     try {
       const text = payload.toString("utf8");
-      const parsed = parseWebSocketUsageMessage(JSON.parse(text));
+      const jsonPayload = JSON.parse(text);
+      if (isOutputDeltaPayload(jsonPayload)) {
+        this.options.onOutputStarted?.();
+      }
+      const parsed = parseWebSocketUsageMessage(jsonPayload);
       const usage = parsed?.usage ?? null;
       if (usage && shouldReplaceUsage(this.best, usage)) {
         this.best = usage;
@@ -178,6 +187,10 @@ export class WebSocketUsageCollector {
       // WebSocket 文本消息里可能只是增量片段或非 JSON 控制消息，这里直接忽略。
     }
   }
+}
+
+interface WebSocketUsageCollectorOptions {
+  onOutputStarted?: () => void;
 }
 
 export interface WebSocketUsageMessage {

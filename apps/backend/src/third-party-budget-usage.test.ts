@@ -34,6 +34,8 @@ function createUsageEvent(
     estimatedCostUsd: 0,
     status: "completed",
     latencyMs: 0,
+    firstOutputLatencyMs: null,
+    outputDurationMs: null,
     tokenRatePerSecond: 0,
     createdAt: "2026-04-01T00:00:00.000Z",
     ...overrides,

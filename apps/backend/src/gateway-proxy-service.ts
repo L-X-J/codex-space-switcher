@@ -16,6 +16,11 @@ import type {
 } from "./gateway-account-store.ts";
 import { detectProxyClient } from "./gateway-client-detection.ts";
 import { buildUsageEvent } from "./gateway-usage-event.ts";
+import {
+  buildTokenRateMetrics,
+  OutputTimingTracker,
+  type OutputTimingSnapshot,
+} from "./token-rate.ts";
 import { formatError } from "./utils.ts";
 import { joinUrl } from "./gateway-url.ts";
 import {
@@ -47,6 +52,11 @@ interface UpstreamDispatchResult {
   upstreamStatusCode: number;
   usagePromise?: Promise<CapturedUsage | null>;
   resolvedModel?: string | null;
+}
+
+interface ProxiedResponseCapture {
+  usage: CapturedUsage | null;
+  timing: OutputTimingSnapshot;
 }
 
 const OFFICIAL_MODELS = [
@@ -100,14 +110,22 @@ export class GatewayProxyService {
         rawBody,
         meta.stream,
       );
-      const proxiedUsage = await proxyUpstreamResponse(
+      const proxiedCapture = await proxyUpstreamResponse(
         response,
         upstreamResult.response,
         meta.stream,
+        startedAt,
       );
       const usage = upstreamResult.usagePromise
         ? await upstreamResult.usagePromise
-        : proxiedUsage;
+        : proxiedCapture.usage;
+      const latencyMs = Date.now() - startedAt;
+      const rateMetrics = buildTokenRateMetrics({
+        outputTokens: usage?.outputTokens ?? 0,
+        latencyMs,
+        firstOutputLatencyMs: proxiedCapture.timing.firstOutputLatencyMs,
+        outputDurationMs: proxiedCapture.timing.outputDurationMs,
+      });
       const statusText =
         upstreamResult.upstreamStatusCode < 400
           ? `${account.name} 返回 ${upstreamResult.upstreamStatusCode}`
@@ -129,8 +147,10 @@ export class GatewayProxyService {
           usageModel,
           usage,
           upstreamResult.upstreamStatusCode,
-          Date.now() - startedAt,
+          latencyMs,
           requestAt,
+          undefined,
+          rateMetrics,
         ),
       );
       await this.options.onUsageRecorded();
@@ -318,8 +338,13 @@ async function proxyUpstreamResponse(
   response: import("node:http").ServerResponse,
   upstream: Response,
   requestStream: boolean,
-) {
+  startedAt: number,
+): Promise<ProxiedResponseCapture> {
   copyUpstreamHeaders(response, upstream.headers);
+  const emptyTiming: OutputTimingSnapshot = {
+    firstOutputLatencyMs: null,
+    outputDurationMs: null,
+  };
 
   const contentType = upstream.headers.get("content-type") ?? "";
   const isEventStream =
@@ -331,19 +356,31 @@ async function proxyUpstreamResponse(
     response.end(payload);
 
     try {
-      return extractUsageFromPayload(JSON.parse(payload));
+      return {
+        usage: extractUsageFromPayload(JSON.parse(payload)),
+        timing: emptyTiming,
+      };
     } catch {
-      return null;
+      return {
+        usage: null,
+        timing: emptyTiming,
+      };
     }
   }
 
   response.writeHead(upstream.status);
   if (!upstream.body) {
     response.end();
-    return null;
+    return {
+      usage: null,
+      timing: emptyTiming,
+    };
   }
 
-  const collector = new SseUsageCollector();
+  const timingTracker = new OutputTimingTracker(startedAt);
+  const collector = new SseUsageCollector({
+    onOutputStarted: () => timingTracker.markOutputStarted(),
+  });
   const reader = upstream.body.getReader();
 
   while (true) {
@@ -361,7 +398,10 @@ async function proxyUpstreamResponse(
   }
 
   response.end();
-  return collector.finish();
+  return {
+    usage: collector.finish(),
+    timing: timingTracker.finish(),
+  };
 }
 
 /**

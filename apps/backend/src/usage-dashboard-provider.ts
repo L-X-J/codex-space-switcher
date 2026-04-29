@@ -7,7 +7,7 @@ import type {
   UsageFilterOption,
 } from "../../../packages/shared/src/index.ts";
 import { estimateUsageEventCostUsd } from "./model-pricing.ts";
-import { calculateTokenRatePerSecond } from "./token-rate.ts";
+import { buildTokenRateMetrics, calculateTokenRatePerSecond } from "./token-rate.ts";
 
 /**
  * 本文件负责把代理事件聚合成前端看板所需的筛选结果。
@@ -146,14 +146,7 @@ export function listRecentUsageEvents(
 
   return [...events]
     .filter((event) => matchesFilter(event, selectedFilter))
-    .map((event) => ({
-      ...event,
-      estimatedCostUsd: resolveEventCostUsd(event, accountsById),
-      tokenRatePerSecond: calculateTokenRatePerSecond(
-        event.outputTokens,
-        event.latencyMs,
-      ),
-    }))
+    .map((event) => normalizeUsageEventForDashboard(event, accountsById))
     .sort(
       (left, right) =>
         new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
@@ -172,21 +165,34 @@ export function aggregateUsageTotals(
   accounts: AccountCard[] = [],
 ): AccountUsageTotals {
   const accountsById = buildAccountMap(accounts);
-  const totals = events.reduce<AccountUsageTotals>(
-    (totals, event) => {
-      totals.inputTokens += event.inputTokens;
-      totals.cachedInputTokens += event.cachedInputTokens;
-      totals.outputTokens += event.outputTokens;
-      totals.totalTokens += event.totalTokens;
-      totals.estimatedCostUsd += resolveEventCostUsd(event, accountsById);
-      totals.requests += 1;
-      totals.totalLatencyMs += normalizeLatencyMs(event.latencyMs);
-      return totals;
+  const accumulator = events.reduce<UsageTotalsAccumulator>(
+    (accumulator, event) => {
+      const normalizedEvent = normalizeUsageEventForDashboard(event, accountsById);
+      const rateDurationMs = resolveRateDurationMs(normalizedEvent);
+
+      accumulator.inputTokens += normalizedEvent.inputTokens;
+      accumulator.cachedInputTokens += normalizedEvent.cachedInputTokens;
+      accumulator.outputTokens += normalizedEvent.outputTokens;
+      accumulator.totalTokens += normalizedEvent.totalTokens;
+      accumulator.estimatedCostUsd += normalizedEvent.estimatedCostUsd;
+      accumulator.requests += 1;
+      accumulator.totalLatencyMs += normalizeLatencyMs(normalizedEvent.latencyMs);
+      accumulator.totalOutputDurationMs += normalizeLatencyMs(
+        normalizedEvent.outputDurationMs,
+      );
+      accumulator.rateDurationMs += rateDurationMs;
+
+      if (normalizedEvent.firstOutputLatencyMs !== null) {
+        accumulator.firstOutputLatencySumMs += normalizedEvent.firstOutputLatencyMs;
+        accumulator.firstOutputLatencySamples += 1;
+      }
+
+      return accumulator;
     },
-    createEmptyUsageTotals(),
+    createEmptyUsageTotalsAccumulator(),
   );
-  totals.tokenRatePerSecond = calculateWindowTokenRatePerSecond(totals);
-  return totals;
+
+  return finalizeUsageTotals(accumulator);
 }
 
 /**
@@ -203,20 +209,108 @@ export function createEmptyUsageTotals(): AccountUsageTotals {
     estimatedCostUsd: 0,
     requests: 0,
     totalLatencyMs: 0,
+    totalOutputDurationMs: 0,
+    averageFirstOutputLatencyMs: null,
     tokenRatePerSecond: 0,
   };
+}
+
+interface UsageTotalsAccumulator extends AccountUsageTotals {
+  firstOutputLatencySumMs: number;
+  firstOutputLatencySamples: number;
+  rateDurationMs: number;
+}
+
+/**
+ * 创建聚合过程使用的内部累加器。
+ *
+ * @returns 带内部计数字段的空统计。
+ */
+function createEmptyUsageTotalsAccumulator(): UsageTotalsAccumulator {
+  return {
+    ...createEmptyUsageTotals(),
+    firstOutputLatencySumMs: 0,
+    firstOutputLatencySamples: 0,
+    rateDurationMs: 0,
+  };
+}
+
+/**
+ * 把内部累加器收敛成前端契约需要的 totals。
+ *
+ * @param accumulator 已累加的 token、耗时和首字样本。
+ * @returns 对外返回的统计结构。
+ */
+function finalizeUsageTotals(
+  accumulator: UsageTotalsAccumulator,
+): AccountUsageTotals {
+  const {
+    firstOutputLatencySumMs,
+    firstOutputLatencySamples,
+    rateDurationMs,
+    ...totals
+  } = accumulator;
+
+  totals.averageFirstOutputLatencyMs =
+    firstOutputLatencySamples > 0
+      ? firstOutputLatencySumMs / firstOutputLatencySamples
+      : null;
+  totals.tokenRatePerSecond = calculateWindowTokenRatePerSecond(
+    totals.outputTokens,
+    rateDurationMs,
+  );
+  return totals;
 }
 
 /**
  * 计算一个统计窗口的加权输出 token 速率。
  *
- * @param totals 已聚合的 token 和耗时数据。
+ * @param outputTokens 已聚合的输出 token。
+ * @param rateDurationMs 已聚合的有效生成周期。
  * @returns token/秒；没有有效耗时时返回 0。
  */
 function calculateWindowTokenRatePerSecond(
-  totals: AccountUsageTotals,
+  outputTokens: number,
+  rateDurationMs: number,
 ): number {
-  return calculateTokenRatePerSecond(totals.outputTokens, totals.totalLatencyMs);
+  return calculateTokenRatePerSecond(outputTokens, rateDurationMs);
+}
+
+/**
+ * 为看板规整单条事件，兼容旧版缺少首字耗时或错误速率的落盘记录。
+ *
+ * @param event 单条代理事件。
+ * @param accountsById 当前账号索引。
+ * @returns 按当前口径修正费用和速率后的事件。
+ */
+function normalizeUsageEventForDashboard(
+  event: UsageEventRecord,
+  accountsById: Map<string, AccountCard>,
+): UsageEventRecord {
+  const rateMetrics = buildTokenRateMetrics({
+    outputTokens: event.outputTokens,
+    latencyMs: event.latencyMs,
+    firstOutputLatencyMs: event.firstOutputLatencyMs ?? null,
+    outputDurationMs: event.outputDurationMs ?? null,
+  });
+
+  return {
+    ...event,
+    estimatedCostUsd: resolveEventCostUsd(event, accountsById),
+    firstOutputLatencyMs: rateMetrics.firstOutputLatencyMs,
+    outputDurationMs: rateMetrics.outputDurationMs,
+    tokenRatePerSecond: rateMetrics.tokenRatePerSecond,
+  };
+}
+
+/**
+ * 选择单条事件参与速率聚合的时间周期。
+ *
+ * @param event 已按当前口径规整的事件。
+ * @returns 优先返回首字到结束的生成周期，缺失时回退到整次请求耗时。
+ */
+function resolveRateDurationMs(event: UsageEventRecord): number {
+  return normalizeLatencyMs(event.outputDurationMs) || normalizeLatencyMs(event.latencyMs);
 }
 
 /**
@@ -225,8 +319,12 @@ function calculateWindowTokenRatePerSecond(
  * @param latencyMs 事件落盘时记录的请求耗时。
  * @returns 可用于聚合的非负毫秒数。
  */
-function normalizeLatencyMs(latencyMs: number): number {
-  if (!Number.isFinite(latencyMs) || latencyMs <= 0) {
+function normalizeLatencyMs(latencyMs: number | null | undefined): number {
+  if (
+    typeof latencyMs !== "number" ||
+    !Number.isFinite(latencyMs) ||
+    latencyMs <= 0
+  ) {
     return 0;
   }
 

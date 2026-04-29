@@ -5,7 +5,10 @@ import { estimateModelCostUsd } from "./model-pricing.ts";
 import type { GatewayRuntimeAccount } from "./gateway-account-store.ts";
 import { createId } from "./utils.ts";
 import type { CapturedUsage } from "./response-usage-capture.ts";
-import { calculateTokenRatePerSecond } from "./token-rate.ts";
+import {
+  buildTokenRateMetrics,
+  type TokenRateMetrics,
+} from "./token-rate.ts";
 
 /**
  * 本文件统一封装代理层 usage 事件的构造逻辑。
@@ -22,6 +25,7 @@ import { calculateTokenRatePerSecond } from "./token-rate.ts";
  * @param latencyMs 请求或会话耗时。
  * @param createdAt 事件时间。
  * @param overrideStatus 可选覆盖状态，用于标记本地错误或特殊关闭原因。
+ * @param rateMetrics 流式路径捕获到的首字与生成周期指标；非流式路径可省略并回退到整次耗时。
  * @returns 可直接落盘的标准事件对象。
  */
 export function buildUsageEvent(
@@ -32,6 +36,7 @@ export function buildUsageEvent(
   latencyMs: number,
   createdAt: string,
   overrideStatus?: string,
+  rateMetrics?: TokenRateMetrics | null,
 ): UsageEventRecord {
   const resolvedModel = model || inferDefaultModel(account);
   const inputTokens = usage?.inputTokens ?? 0;
@@ -39,7 +44,12 @@ export function buildUsageEvent(
   const outputTokens = usage?.outputTokens ?? 0;
   const totalTokens =
     usage?.totalTokens ?? Math.max(inputTokens + outputTokens, 0);
-  const tokenRatePerSecond = calculateTokenRatePerSecond(outputTokens, latencyMs);
+  const resolvedRateMetrics = buildTokenRateMetrics({
+    outputTokens,
+    latencyMs,
+    firstOutputLatencyMs: rateMetrics?.firstOutputLatencyMs ?? null,
+    outputDurationMs: rateMetrics?.outputDurationMs ?? null,
+  });
 
   return {
     id: createId(),
@@ -62,7 +72,9 @@ export function buildUsageEvent(
       overrideStatus ??
       (statusCode >= 400 ? `upstream_${statusCode}` : "completed"),
     latencyMs,
-    tokenRatePerSecond,
+    firstOutputLatencyMs: resolvedRateMetrics.firstOutputLatencyMs,
+    outputDurationMs: resolvedRateMetrics.outputDurationMs,
+    tokenRatePerSecond: resolvedRateMetrics.tokenRatePerSecond,
     createdAt,
   };
 }

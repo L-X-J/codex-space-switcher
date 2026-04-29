@@ -15,6 +15,11 @@ import {
   WebSocketUsageCollector,
   type WebSocketUsageMessage,
 } from "./websocket-response-usage-capture.ts";
+import {
+  buildTokenRateMetrics,
+  OutputTimingTracker,
+  type TokenRateMetrics,
+} from "./token-rate.ts";
 
 /**
  * 本文件负责 `/responses` 的 WebSocket upgrade 隧道转发。
@@ -222,7 +227,10 @@ export class GatewayWebSocketProxyService {
       requestAt,
       startedAt,
     } = options;
-    const collector = new WebSocketUsageCollector();
+    const timingTracker = new OutputTimingTracker(startedAt);
+    const collector = new WebSocketUsageCollector({
+      onOutputStarted: () => timingTracker.markOutputStarted(),
+    });
     let finalized = false;
     let overrideStatus: string | undefined;
     const pendingWrites = new Set<Promise<void>>();
@@ -244,6 +252,7 @@ export class GatewayWebSocketProxyService {
           model,
           requestAt,
           startedAt,
+          timingTracker,
           message,
           overrideStatus,
         );
@@ -271,6 +280,7 @@ export class GatewayWebSocketProxyService {
           model,
           requestAt,
           startedAt,
+          timingTracker,
           message,
         ).finally(() => {
           pendingWrites.delete(writeTask);
@@ -317,6 +327,7 @@ export class GatewayWebSocketProxyService {
    * @param latencyMs 会话持续时间。
    * @param overrideStatus 可选覆盖状态。
    * @param usage 会话内捕获到的 usage。
+   * @param rateMetrics 首字耗时与生成速率指标。
    * @returns 无返回值。
    */
   private async recordUsageEvent(
@@ -327,6 +338,7 @@ export class GatewayWebSocketProxyService {
     latencyMs: number,
     overrideStatus?: string,
     usage = null,
+    rateMetrics?: TokenRateMetrics | null,
   ): Promise<void> {
     await appendUsageEvent(
       buildUsageEvent(
@@ -337,6 +349,7 @@ export class GatewayWebSocketProxyService {
         latencyMs,
         requestAt,
         overrideStatus,
+        rateMetrics,
       ),
     );
     await this.options.onUsageRecorded();
@@ -349,6 +362,7 @@ export class GatewayWebSocketProxyService {
    * @param fallbackModel 握手阶段可见的模型名。
    * @param requestAt 会话开始时间。
    * @param startedAt 会话开始时间戳。
+   * @param timingTracker 流式输出时间跟踪器。
    * @param message 已解析出的 usage 消息。
    * @param overrideStatus 可选覆盖状态。
    * @returns 无返回值。
@@ -358,17 +372,28 @@ export class GatewayWebSocketProxyService {
     fallbackModel: string | null,
     requestAt: string,
     startedAt: number,
+    timingTracker: OutputTimingTracker,
     message: WebSocketUsageMessage,
     overrideStatus?: string,
   ): Promise<void> {
+    const latencyMs = Date.now() - startedAt;
+    const timing = timingTracker.finish();
+    const rateMetrics = buildTokenRateMetrics({
+      outputTokens: message.usage.outputTokens,
+      latencyMs,
+      firstOutputLatencyMs: timing.firstOutputLatencyMs,
+      outputDurationMs: timing.outputDurationMs,
+    });
+
     await this.recordUsageEvent(
       account,
       message.model || fallbackModel,
       101,
       requestAt,
-      Date.now() - startedAt,
+      latencyMs,
       overrideStatus,
       message.usage,
+      rateMetrics,
     );
   }
 }

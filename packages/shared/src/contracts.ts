@@ -173,6 +173,8 @@ export interface AccountUsageTotals {
   estimatedCostUsd: number;
   requests: number;
   totalLatencyMs: number;
+  totalOutputDurationMs: number;
+  averageFirstOutputLatencyMs: number | null;
   tokenRatePerSecond: number;
 }
 
@@ -399,6 +401,8 @@ export interface UsageEventRecord {
   estimatedCostUsd: number;
   status: string;
   latencyMs: number;
+  firstOutputLatencyMs: number | null;
+  outputDurationMs: number | null;
   tokenRatePerSecond: number;
   createdAt: string;
 }

@@ -27,6 +27,29 @@ export function formatTokenRate(value) {
 }
 
 /**
+ * 格式化毫秒耗时。
+ *
+ * @param {number | null | undefined} value 原始毫秒数。
+ * @returns {string}
+ */
+export function formatDurationMs(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "--";
+  }
+
+  const safeValue = Math.max(value, 0);
+  if (safeValue < 1000) {
+    return `${new Intl.NumberFormat("zh-CN", {
+      maximumFractionDigits: 0,
+    }).format(safeValue)} ms`;
+  }
+
+  return `${new Intl.NumberFormat("zh-CN", {
+    maximumFractionDigits: 2,
+  }).format(safeValue / 1000)} s`;
+}
+
+/**
  * 格式化美元金额。
  *
  * @param {number} value 原始金额。

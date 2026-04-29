@@ -214,7 +214,7 @@
                     <p class="eyebrow">Usage</p>
                     <h2>筛选统计</h2>
                     <p class="section-caption">
-                      查看筛选后的输入 Token、Cache Token、输出 Token、总 Token、token 速率，以及按规则估算的费用。
+                      查看筛选后的输入 Token、Cache Token、输出 Token、总 Token、首字耗时、token 速率，以及按规则估算的费用。
                     </p>
                   </div>
                   <div class="toolbar">
@@ -692,6 +692,10 @@
             <strong class="metric-value usage-metric-rate"></strong>
           </div>
           <div class="metric-block">
+            <span class="metric-label">平均首字耗时</span>
+            <strong class="metric-value usage-metric-first-output"></strong>
+          </div>
+          <div class="metric-block">
             <span class="metric-label">预计费用</span>
             <strong class="metric-value usage-metric-cost"></strong>
           </div>
@@ -777,6 +781,10 @@
           <div class="summary-stat">
             <span class="metric-label">Token 速率</span>
             <strong class="metric-value event-token-rate"></strong>
+          </div>
+          <div class="summary-stat">
+            <span class="metric-label">首字耗时</span>
+            <strong class="metric-value event-first-output-latency"></strong>
           </div>
           <div class="summary-stat">
             <span class="metric-label">预计费用</span>

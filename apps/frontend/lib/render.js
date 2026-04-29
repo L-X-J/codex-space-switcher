@@ -2,6 +2,7 @@ import {
   formatAccountKind,
   formatCurrency,
   formatDateTime,
+  formatDurationMs,
   formatPercent,
   formatProxyClientKind,
   formatResetCountdown,
@@ -320,6 +321,8 @@ export function renderUsagePanels(usageDashboard, elements) {
     fragment.querySelector(".usage-metric-rate").textContent = formatTokenRate(
       windowSummary.totals.tokenRatePerSecond,
     );
+    fragment.querySelector(".usage-metric-first-output").textContent =
+      formatDurationMs(windowSummary.totals.averageFirstOutputLatencyMs);
     fragment.querySelector(".usage-metric-cost").textContent = formatCurrency(
       windowSummary.totals.estimatedCostUsd,
     );
@@ -561,6 +564,8 @@ export function renderUsageEvents(events, elements) {
     fragment.querySelector(".event-token-rate").textContent = formatTokenRate(
       event.tokenRatePerSecond ?? calculateFallbackTokenRate(event),
     );
+    fragment.querySelector(".event-first-output-latency").textContent =
+      formatDurationMs(event.firstOutputLatencyMs ?? null);
     fragment.querySelector(".event-cost").textContent = formatCurrency(
       event.estimatedCostUsd,
     );
@@ -577,12 +582,18 @@ export function renderUsageEvents(events, elements) {
  */
 function calculateFallbackTokenRate(event) {
   const outputTokens = Number(event?.outputTokens ?? 0);
+  const outputDurationMs = Number(event?.outputDurationMs ?? 0);
   const latencyMs = Number(event?.latencyMs ?? 0);
-  if (!Number.isFinite(outputTokens) || !Number.isFinite(latencyMs) || latencyMs <= 0) {
+  const rateDurationMs = outputDurationMs > 0 ? outputDurationMs : latencyMs;
+  if (
+    !Number.isFinite(outputTokens) ||
+    !Number.isFinite(rateDurationMs) ||
+    rateDurationMs <= 0
+  ) {
     return 0;
   }
 
-  return Math.max(outputTokens, 0) / (latencyMs / 1000);
+  return Math.max(outputTokens, 0) / (rateDurationMs / 1000);
 }
 
 /**

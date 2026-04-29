@@ -32,6 +32,8 @@ const accounts = [
       estimatedCostUsd: 0,
       requests: 0,
       totalLatencyMs: 0,
+      totalOutputDurationMs: 0,
+      averageFirstOutputLatencyMs: null,
       tokenRatePerSecond: 0,
     },
     rawDiagnostics: [],
@@ -55,6 +57,8 @@ const accounts = [
       estimatedCostUsd: 0,
       requests: 0,
       totalLatencyMs: 0,
+      totalOutputDurationMs: 0,
+      averageFirstOutputLatencyMs: null,
       tokenRatePerSecond: 0,
     },
     rawDiagnostics: [],
@@ -89,6 +93,8 @@ const accounts = [
       estimatedCostUsd: 0,
       requests: 0,
       totalLatencyMs: 0,
+      totalOutputDurationMs: 0,
+      averageFirstOutputLatencyMs: null,
       tokenRatePerSecond: 0,
     },
     rawDiagnostics: [],
@@ -109,7 +115,9 @@ const events = [
     estimatedCostUsd: 0.01,
     status: "completed",
     latencyMs: 600,
-    tokenRatePerSecond: 500,
+    firstOutputLatencyMs: 200,
+    outputDurationMs: 400,
+    tokenRatePerSecond: 750,
     createdAt: "2026-04-17T04:30:00.000Z",
   },
   {
@@ -125,7 +133,9 @@ const events = [
     estimatedCostUsd: 0.02,
     status: "completed",
     latencyMs: 700,
-    tokenRatePerSecond: 714.2857142857143,
+    firstOutputLatencyMs: 100,
+    outputDurationMs: 500,
+    tokenRatePerSecond: 1000,
     createdAt: "2026-04-12T05:30:00.000Z",
   },
   {
@@ -141,7 +151,9 @@ const events = [
     estimatedCostUsd: 0.005,
     status: "completed",
     latencyMs: 320,
-    tokenRatePerSecond: 312.5,
+    firstOutputLatencyMs: 120,
+    outputDurationMs: 200,
+    tokenRatePerSecond: 500,
     createdAt: "2026-04-17T06:40:00.000Z",
   },
 ];
@@ -157,9 +169,11 @@ test("应能按账号类型筛选并聚合累计 totals", () => {
   assert.equal(summary.cumulative.totals.requests, 2);
   assert.equal(summary.cumulative.totals.inputTokens, 3000);
   assert.equal(summary.cumulative.totals.outputTokens, 800);
-  // token 速率表达模型生成速度，不能把输入上下文 token 计入分子，否则长上下文请求会被严重高估。
+  // token 速率表达模型生成速度，应使用首个输出到结束的生成周期，而不是整次请求耗时。
   assert.equal(summary.cumulative.totals.totalLatencyMs, 1300);
-  assert.ok(Math.abs(summary.cumulative.totals.tokenRatePerSecond - 615.3846) < 1e-4);
+  assert.equal(summary.cumulative.totals.totalOutputDurationMs, 900);
+  assert.equal(summary.cumulative.totals.averageFirstOutputLatencyMs, 150);
+  assert.ok(Math.abs(summary.cumulative.totals.tokenRatePerSecond - 888.8889) < 1e-4);
   // today 窗口：now=2026-04-17T07:00:00Z（北京时间 15:00），当天零点之后的官方事件只有 evt-1
   assert.equal(summary.today.totals.requests, 1);
   assert.equal(summary.today.totals.inputTokens, 1000);
@@ -177,7 +191,9 @@ test("应能按单个账号筛选最近事件", () => {
   assert.equal(totals.cachedInputTokens, 100);
   assert.equal(totals.totalTokens, 600);
   assert.equal(totals.totalLatencyMs, 320);
-  assert.equal(totals.tokenRatePerSecond, 312.5);
+  assert.equal(totals.totalOutputDurationMs, 200);
+  assert.equal(totals.averageFirstOutputLatencyMs, 120);
+  assert.equal(totals.tokenRatePerSecond, 500);
   assert.ok(Math.abs(totals.estimatedCostUsd - 0.00061) < 1e-12);
 });
 
@@ -199,6 +215,8 @@ test("最近请求会按输出 token 重新计算速率，兼容旧版落盘字�
       {
         ...events[2]!,
         // 旧版本曾按 totalTokens / latencyMs 落盘，API 返回前需要修正为输出速率。
+        firstOutputLatencyMs: null,
+        outputDurationMs: null,
         tokenRatePerSecond: 1875,
       },
     ],
@@ -208,4 +226,6 @@ test("最近请求会按输出 token 重新计算速率，兼容旧版落盘字�
   );
 
   assert.equal(recentEvents[0]?.tokenRatePerSecond, 312.5);
+  assert.equal(recentEvents[0]?.firstOutputLatencyMs, null);
+  assert.equal(recentEvents[0]?.outputDurationMs, null);
 });

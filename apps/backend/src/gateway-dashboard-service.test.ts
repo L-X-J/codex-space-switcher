@@ -29,6 +29,8 @@ function createAccount(
       estimatedCostUsd: 0,
       requests: 0,
       totalLatencyMs: 0,
+      totalOutputDurationMs: 0,
+      averageFirstOutputLatencyMs: null,
       tokenRatePerSecond: 0,
     },
     rawDiagnostics: [],

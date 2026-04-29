@@ -2,6 +2,7 @@ import type {
   ThirdPartyBillingRule,
   ThirdPartyPricingRule,
   ThirdPartyQuotaRule,
+  ThirdPartyTokenQuotaRule,
 } from "../../../packages/shared/src/index.ts";
 import { HttpError } from "./http-error.ts";
 
@@ -72,6 +73,16 @@ export function describeThirdPartyBillingRule(
     parts.push(`每周额度 ${formatUsd(rule.quota.weeklyBudgetUsd)}`);
   }
 
+  if (rule.quota?.totalBudgetUsd !== undefined) {
+    parts.push(`总金额额度 ${formatUsd(rule.quota.totalBudgetUsd)}`);
+  }
+
+  if (rule.quota?.tokenQuota) {
+    parts.push(
+      `每月 Token 额度 ${formatTokenCount(rule.quota.tokenQuota.limitTokens)}`,
+    );
+  }
+
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 
@@ -131,9 +142,9 @@ function normalizeThirdPartyPricingRule(
 }
 
 /**
- * 归一化第三方账号的预算配置。
+ * 归一化第三方账号的额度配置。
  *
- * @param quota 原始预算对象。
+ * @param quota 原始额度对象。
  * @returns 标准化结果；若完全未配置则返回 `undefined`。
  */
 function normalizeThirdPartyQuotaRule(
@@ -147,16 +158,29 @@ function normalizeThirdPartyQuotaRule(
     quota?.shortWindowBudgetUsd,
     "第三方账号短周期额度",
   );
+  const totalBudgetUsd = normalizeOptionalMoney(
+    quota?.totalBudgetUsd,
+    "第三方账号总金额额度",
+  );
+  const tokenQuota = normalizeThirdPartyTokenQuotaRule(quota?.tokenQuota);
 
   if (
     weeklyBudgetUsd === undefined &&
     shortWindowBudgetUsd === undefined &&
+    totalBudgetUsd === undefined &&
+    tokenQuota === undefined &&
     quota?.shortWindowKind === undefined
   ) {
     return undefined;
   }
 
-  if (quota?.shortWindowKind && shortWindowBudgetUsd === undefined) {
+  if (
+    quota?.shortWindowKind &&
+    shortWindowBudgetUsd === undefined &&
+    weeklyBudgetUsd === undefined &&
+    totalBudgetUsd === undefined &&
+    tokenQuota === undefined
+  ) {
     throw new HttpError(
       400,
       "第三方账号已选择每天或每 5 小时额度，但没有填写对应额度值。",
@@ -173,6 +197,39 @@ function normalizeThirdPartyQuotaRule(
     ...(shortWindowBudgetUsd !== undefined
       ? { shortWindowBudgetUsd, shortWindowKind }
       : {}),
+    ...(totalBudgetUsd !== undefined ? { totalBudgetUsd } : {}),
+    ...(tokenQuota ? { tokenQuota } : {}),
+  };
+}
+
+/**
+ * 归一化第三方账号的 token 额度配置。
+ *
+ * @param tokenQuota 原始 token 额度对象。
+ * @returns 标准化结果；若完全未配置则返回 `undefined`。
+ */
+function normalizeThirdPartyTokenQuotaRule(
+  tokenQuota: ThirdPartyTokenQuotaRule | null | undefined,
+): ThirdPartyTokenQuotaRule | undefined {
+  const limitTokens = normalizeOptionalTokenCount(
+    tokenQuota?.limitTokens,
+    "第三方账号 Token 总额",
+  );
+
+  if (limitTokens === undefined && tokenQuota?.windowKind === undefined) {
+    return undefined;
+  }
+
+  if (limitTokens === undefined) {
+    throw new HttpError(
+      400,
+      "第三方账号已选择 Token 额度周期，但没有填写 Token 总额。",
+    );
+  }
+
+  return {
+    limitTokens,
+    windowKind: normalizeTokenQuotaWindowKind(tokenQuota?.windowKind),
   };
 }
 
@@ -194,6 +251,26 @@ function normalizeShortWindowKind(
   }
 
   throw new HttpError(400, "第三方账号短周期额度类型只支持每天或每 5 小时。");
+}
+
+/**
+ * 标准化 token 额度窗口类型。
+ *
+ * @param kind 原始类型。
+ * @returns 合法窗口类型。
+ */
+function normalizeTokenQuotaWindowKind(
+  kind: string | null | undefined,
+): "monthly" {
+  if (kind === undefined || kind === null || kind === "") {
+    return "monthly";
+  }
+
+  if (kind === "monthly") {
+    return kind;
+  }
+
+  throw new HttpError(400, "第三方账号 Token 额度类型目前只支持每月。");
 }
 
 /**
@@ -223,6 +300,36 @@ function normalizeOptionalMoney(
 }
 
 /**
+ * 将可选的 token 总数输入归一化为非负整数。
+ *
+ * @param value 原始值。
+ * @param label 字段名。
+ * @returns token 数量；留空时返回 `undefined`。
+ */
+function normalizeOptionalTokenCount(
+  value: number | null | undefined,
+  label: string,
+): number | undefined {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+
+  if (!Number.isFinite(value)) {
+    throw new HttpError(400, `${label}必须是有效数字。`);
+  }
+
+  if (value < 0) {
+    throw new HttpError(400, `${label}不能为负数。`);
+  }
+
+  if (!Number.isInteger(value)) {
+    throw new HttpError(400, `${label}必须是整数。`);
+  }
+
+  return Number(value);
+}
+
+/**
  * 把美元金额格式化成简短摘要。
  *
  * @param value 金额。
@@ -235,4 +342,14 @@ function formatUsd(value: number): string {
     minimumFractionDigits: value >= 1 ? 2 : 4,
     maximumFractionDigits: value >= 1 ? 2 : 4,
   }).format(value);
+}
+
+/**
+ * 把 token 数量格式化成简短摘要。
+ *
+ * @param value token 数量。
+ * @returns 适合诊断区展示的字符串。
+ */
+function formatTokenCount(value: number): string {
+  return new Intl.NumberFormat("zh-CN").format(value);
 }

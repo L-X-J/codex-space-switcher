@@ -307,6 +307,7 @@ textarea {
 
 .muted-text,
 .card-footnote,
+.field-hint,
 .metric-footnote {
   margin: 0;
   color: var(--muted);
@@ -662,6 +663,10 @@ textarea {
   text-transform: uppercase;
 }
 
+.field-hint {
+  font-size: 12px;
+}
+
 .text-input,
 .text-area {
   width: 100%;
@@ -979,6 +984,10 @@ textarea {
 
 .account-cell .metric-label {
   display: none;
+}
+
+.account-cell-quota .metric-label {
+  display: block;
 }
 
 .account-cell-primary .card-title {

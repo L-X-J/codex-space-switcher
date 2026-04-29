@@ -356,8 +356,11 @@ export function renderAccountRows(accounts, elements, onActivate, onEdit) {
     const health = fragment.querySelector(".health-pill");
     const primaryUsage = account.officialUsage?.primary ?? null;
     const secondaryUsage = account.officialUsage?.secondary ?? null;
-    const shortBudget = account.thirdPartyBudgetSnapshot?.shortWindow ?? null;
-    const weeklyBudget = account.thirdPartyBudgetSnapshot?.weeklyWindow ?? null;
+    const thirdPartyQuotaSlots = pickThirdPartyQuotaSlots(
+      account.thirdPartyBudgetSnapshot,
+    );
+    const primaryQuota = thirdPartyQuotaSlots[0] ?? null;
+    const secondaryQuota = thirdPartyQuotaSlots[1] ?? null;
 
     root.dataset.active = account.isActive ? "true" : "false";
     fragment.querySelector(".account-name").textContent = account.name;
@@ -372,24 +375,26 @@ export function renderAccountRows(accounts, elements, onActivate, onEdit) {
       account.cumulativeUsage.estimatedCostUsd,
     );
     fragment.querySelector(".account-short-window-label").textContent =
-      shortBudget?.label ?? (account.kind === "official" ? "5 小时剩余" : "短周期剩余");
+      primaryQuota?.label ??
+      (account.kind === "official" ? "5 小时剩余" : "额度剩余");
     fragment.querySelector(".account-weekly-window-label").textContent =
-      weeklyBudget?.label ?? (account.kind === "official" ? "近一周剩余" : "每周剩余");
+      secondaryQuota?.label ??
+      (account.kind === "official" ? "近一周剩余" : "更多额度");
     fragment.querySelector(".account-primary-remaining").textContent =
       account.kind === "third_party"
-        ? formatBudgetRemaining(shortBudget)
+        ? formatQuotaRemaining(primaryQuota)
         : formatPercent(primaryUsage?.remainingPercent ?? null);
     fragment.querySelector(".account-primary-reset").textContent =
       account.kind === "third_party"
-        ? formatBudgetMeta(shortBudget)
+        ? formatQuotaMeta(primaryQuota)
         : formatResetCountdown(primaryUsage?.resetsAt ?? null);
     fragment.querySelector(".account-secondary-remaining").textContent =
       account.kind === "third_party"
-        ? formatBudgetRemaining(weeklyBudget)
+        ? formatQuotaRemaining(secondaryQuota)
         : formatPercent(secondaryUsage?.remainingPercent ?? null);
     fragment.querySelector(".account-secondary-reset").textContent =
       account.kind === "third_party"
-        ? formatBudgetMeta(weeklyBudget)
+        ? formatQuotaMeta(secondaryQuota)
         : formatResetCountdown(secondaryUsage?.resetsAt ?? null);
 
     health.textContent = translateHealth(account.health);
@@ -501,6 +506,8 @@ export function renderAccountCreationForms(elements, viewState) {
       elements.thirdPartyAccountWeeklyBudgetInput,
       elements.thirdPartyAccountShortWindowBudgetInput,
       elements.thirdPartyAccountShortWindowKindInput,
+      elements.thirdPartyAccountTotalBudgetInput,
+      elements.thirdPartyAccountMonthlyTokenLimitInput,
       elements.thirdPartyAccountWsRequiredInput,
     ],
     elements.thirdPartyAccountFeedback,
@@ -746,31 +753,73 @@ function buildAccountDetailText(account) {
 }
 
 /**
- * 格式化第三方预算窗口的剩余额度。
+ * 格式化第三方额度窗口的剩余额度。
  *
- * @param {any} budgetWindow 单个预算窗口。
+ * @param {any} quotaWindow 单个额度窗口。
  * @returns {string}
  */
-function formatBudgetRemaining(budgetWindow) {
-  if (!budgetWindow) {
+function formatQuotaRemaining(quotaWindow) {
+  if (!quotaWindow) {
     return "--";
   }
 
-  return formatCurrency(budgetWindow.remainingUsd ?? 0);
+  if (isTokenQuotaWindow(quotaWindow)) {
+    return formatTokenCount(quotaWindow.remainingTokens ?? 0);
+  }
+
+  return formatCurrency(quotaWindow.remainingUsd ?? 0);
 }
 
 /**
- * 格式化第三方预算窗口的说明文案。
+ * 格式化第三方额度窗口的说明文案。
  *
- * @param {any} budgetWindow 单个预算窗口。
+ * @param {any} quotaWindow 单个额度窗口。
  * @returns {string}
  */
-function formatBudgetMeta(budgetWindow) {
-  if (!budgetWindow) {
+function formatQuotaMeta(quotaWindow) {
+  if (!quotaWindow) {
     return "未设置额度";
   }
 
-  return `已用 ${formatCurrency(budgetWindow.spentUsd)} / ${formatCurrency(budgetWindow.limitUsd)} · ${formatResetCountdown(budgetWindow.resetsAt)}`;
+  const resetText = quotaWindow.resetsAt
+    ? formatResetCountdown(quotaWindow.resetsAt)
+    : "不重置";
+
+  if (isTokenQuotaWindow(quotaWindow)) {
+    return `已用 ${formatTokenCount(quotaWindow.usedTokens)} / ${formatTokenCount(quotaWindow.limitTokens)} · ${resetText}`;
+  }
+
+  return `已用 ${formatCurrency(quotaWindow.spentUsd)} / ${formatCurrency(quotaWindow.limitUsd)} · ${resetText}`;
+}
+
+/**
+ * 从第三方额度摘要中挑出账号列表优先展示的两个窗口。
+ * 列表只有两个额度列，因此按既有短周期/周额度优先，其次展示新增的总金额和 token 额度。
+ *
+ * @param {any} snapshot 第三方额度摘要。
+ * @returns {any[]} 最多两个额度窗口。
+ */
+function pickThirdPartyQuotaSlots(snapshot) {
+  if (!snapshot) {
+    return [];
+  }
+
+  return [
+    snapshot.shortWindow,
+    snapshot.weeklyWindow,
+    snapshot.totalBudget,
+    snapshot.tokenWindow,
+  ].filter(Boolean).slice(0, 2);
+}
+
+/**
+ * 判断一个额度摘要是否使用 token 作为扣减单位。
+ *
+ * @param {any} quotaWindow 单个额度窗口。
+ * @returns {boolean}
+ */
+function isTokenQuotaWindow(quotaWindow) {
+  return quotaWindow && "limitTokens" in quotaWindow;
 }
 
 /**

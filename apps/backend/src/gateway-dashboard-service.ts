@@ -256,6 +256,9 @@ export class GatewayDashboardService {
           } else {
             rawDiagnostics.push("未配置单独计费规则时，将按官方公开定价估算费用。");
           }
+          if (thirdPartyBudgetSnapshot) {
+            statusLabel = "第三方额度计量";
+          }
           if (hasCustomThirdPartyPricing(thirdPartyBillingRule)) {
             statusLabel = "第三方自定义计费";
           }
@@ -753,9 +756,7 @@ export function pickHealthyActiveAccountId(
  * @returns 任一窗口耗尽时返回 `true`。
  */
 function isBudgetExhausted(snapshot: AccountBudgetSnapshot | null): boolean {
-  return [snapshot?.shortWindow, snapshot?.weeklyWindow].some(
-    (window) => window && window.remainingUsd <= 0,
-  );
+  return collectBudgetRatios(snapshot).some((window) => window.remaining <= 0);
 }
 
 /**
@@ -765,11 +766,46 @@ function isBudgetExhausted(snapshot: AccountBudgetSnapshot | null): boolean {
  * @returns 任一窗口剩余不足 15% 时返回 `true`。
  */
 function isBudgetWarning(snapshot: AccountBudgetSnapshot | null): boolean {
-  return [snapshot?.shortWindow, snapshot?.weeklyWindow].some((window) => {
-    if (!window || window.limitUsd <= 0) {
-      return false;
+  return collectBudgetRatios(snapshot).some(
+    (window) => window.limit > 0 && window.remaining / window.limit <= 0.15,
+  );
+}
+
+/**
+ * 把美元额度与 token 额度收敛成统一比例，供健康状态判断复用。
+ *
+ * @param snapshot 当前预算摘要。
+ * @returns 每个额度窗口的剩余量与上限。
+ */
+function collectBudgetRatios(
+  snapshot: AccountBudgetSnapshot | null,
+): Array<{ remaining: number; limit: number }> {
+  if (!snapshot) {
+    return [];
+  }
+
+  const ratios: Array<{ remaining: number; limit: number }> = [];
+  for (const window of [
+    snapshot.shortWindow,
+    snapshot.weeklyWindow,
+    snapshot.totalBudget,
+  ]) {
+    if (!window) {
+      continue;
     }
 
-    return window.remainingUsd / window.limitUsd <= 0.15;
-  });
+    ratios.push({
+      remaining: window.remainingUsd,
+      limit: window.limitUsd,
+    });
+  }
+
+  if (snapshot.tokenWindow) {
+    ratios.push({
+      remaining: snapshot.tokenWindow.remainingTokens,
+      limit: snapshot.tokenWindow.limitTokens,
+    });
+  }
+
+  return ratios;
 }

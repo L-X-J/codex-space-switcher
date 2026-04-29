@@ -132,6 +132,11 @@ test("updateGatewayAccount 应持久化第三方账号编辑结果", async () =>
             weeklyBudgetUsd: 30,
             shortWindowBudgetUsd: 5,
             shortWindowKind: "daily",
+            totalBudgetUsd: 200,
+            tokenQuota: {
+              limitTokens: 200000000,
+              windowKind: "monthly",
+            },
           },
         },
       });
@@ -161,6 +166,11 @@ test("updateGatewayAccount 应持久化第三方账号编辑结果", async () =>
       weeklyBudgetUsd: 30,
       shortWindowBudgetUsd: 5,
       shortWindowKind: "daily",
+      totalBudgetUsd: 200,
+      tokenQuota: {
+        limitTokens: 200000000,
+        windowKind: "monthly",
+      },
     },
   });
 });

@@ -170,6 +170,8 @@ const elements = {
   thirdPartyAccountWeeklyBudgetInput: document.querySelector("#thirdPartyAccountWeeklyBudgetInput"),
   thirdPartyAccountShortWindowBudgetInput: document.querySelector("#thirdPartyAccountShortWindowBudgetInput"),
   thirdPartyAccountShortWindowKindInput: document.querySelector("#thirdPartyAccountShortWindowKindInput"),
+  thirdPartyAccountTotalBudgetInput: document.querySelector("#thirdPartyAccountTotalBudgetInput"),
+  thirdPartyAccountMonthlyTokenLimitInput: document.querySelector("#thirdPartyAccountMonthlyTokenLimitInput"),
   thirdPartyAccountWsRequiredInput: document.querySelector("#thirdPartyAccountWsRequiredInput"),
   thirdPartyAccountSubmit: document.querySelector("#thirdPartyAccountSubmit"),
   thirdPartyAccountFeedback: document.querySelector("#thirdPartyAccountFeedback"),
@@ -387,6 +389,8 @@ function bindAccountForms() {
     elements.thirdPartyAccountWeeklyBudgetInput,
     elements.thirdPartyAccountShortWindowBudgetInput,
     elements.thirdPartyAccountShortWindowKindInput,
+    elements.thirdPartyAccountTotalBudgetInput,
+    elements.thirdPartyAccountMonthlyTokenLimitInput,
     elements.thirdPartyAccountWsRequiredInput,
   ]) {
     field?.addEventListener("input", clearThirdPartyValidationConfirmation);
@@ -560,6 +564,12 @@ function buildThirdPartyAccountPayload() {
   const shortWindowBudgetUsd = readOptionalNumber(
     elements.thirdPartyAccountShortWindowBudgetInput?.value,
   );
+  const totalBudgetUsd = readOptionalNumber(
+    elements.thirdPartyAccountTotalBudgetInput?.value,
+  );
+  const monthlyTokenLimit = readOptionalNumber(
+    elements.thirdPartyAccountMonthlyTokenLimitInput?.value,
+  );
 
   const billingRule = {};
   if (
@@ -574,12 +584,30 @@ function buildThirdPartyAccountPayload() {
     };
   }
 
-  if (weeklyBudgetUsd !== undefined || shortWindowBudgetUsd !== undefined) {
+  if (
+    weeklyBudgetUsd !== undefined ||
+    shortWindowBudgetUsd !== undefined ||
+    totalBudgetUsd !== undefined ||
+    monthlyTokenLimit !== undefined
+  ) {
     billingRule.quota = {
       weeklyBudgetUsd,
       shortWindowBudgetUsd,
-      shortWindowKind:
-        elements.thirdPartyAccountShortWindowKindInput?.value || "five_hour",
+      ...(shortWindowBudgetUsd !== undefined
+        ? {
+            shortWindowKind:
+              elements.thirdPartyAccountShortWindowKindInput?.value || "five_hour",
+          }
+        : {}),
+      totalBudgetUsd,
+      ...(monthlyTokenLimit !== undefined
+        ? {
+            tokenQuota: {
+              limitTokens: monthlyTokenLimit,
+              windowKind: "monthly",
+            },
+          }
+        : {}),
     };
   }
 
@@ -988,6 +1016,14 @@ function fillAccountCreationForm(detail) {
   if (elements.thirdPartyAccountShortWindowKindInput) {
     elements.thirdPartyAccountShortWindowKindInput.value =
       detail.billingRule?.quota?.shortWindowKind ?? "five_hour";
+  }
+  if (elements.thirdPartyAccountTotalBudgetInput) {
+    elements.thirdPartyAccountTotalBudgetInput.value =
+      detail.billingRule?.quota?.totalBudgetUsd?.toString() ?? "";
+  }
+  if (elements.thirdPartyAccountMonthlyTokenLimitInput) {
+    elements.thirdPartyAccountMonthlyTokenLimitInput.value =
+      detail.billingRule?.quota?.tokenQuota?.limitTokens?.toString() ?? "";
   }
   if (elements.thirdPartyAccountWsRequiredInput) {
     elements.thirdPartyAccountWsRequiredInput.checked =

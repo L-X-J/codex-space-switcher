@@ -88,6 +88,8 @@ export interface OfficialUsageSnapshot {
 
 export type ThirdPartyBudgetWindowKind = "daily" | "five_hour";
 
+export type ThirdPartyTokenQuotaWindowKind = "monthly";
+
 /**
  * 描述第三方账号的自定义单价。
  * 所有价格均以 USD / 1M tokens 为单位。
@@ -99,18 +101,29 @@ export interface ThirdPartyPricingRule {
 }
 
 /**
- * 描述第三方账号的预算窗口。
- * 预算本身以美元计，实际消耗金额由当前计费规则推导。
+ * 描述第三方账号按 token 数量扣减的额度。
+ * 当前只支持自然月窗口，后续如果接入按账期起始日滚动的套餐，可在这里扩展窗口类型。
+ */
+export interface ThirdPartyTokenQuotaRule {
+  limitTokens: number;
+  windowKind: ThirdPartyTokenQuotaWindowKind;
+}
+
+/**
+ * 描述第三方账号的额度规则。
+ * 美元额度会按当前计费规则推导消耗；token 额度直接按事件里的 totalTokens 扣减。
  */
 export interface ThirdPartyQuotaRule {
   weeklyBudgetUsd?: number;
   shortWindowBudgetUsd?: number;
   shortWindowKind?: ThirdPartyBudgetWindowKind;
+  totalBudgetUsd?: number;
+  tokenQuota?: ThirdPartyTokenQuotaRule;
 }
 
 /**
  * 描述第三方账号可选的账号级计费覆盖规则。
- * 用户可以只配置价格、只配置预算，或两者同时配置。
+ * 用户可以只配置价格、只配置额度，或两者同时配置。
  */
 export interface ThirdPartyBillingRule {
   pricing?: ThirdPartyPricingRule;
@@ -125,15 +138,28 @@ export interface AccountBudgetWindowSummary {
   limitUsd: number;
   spentUsd: number;
   remainingUsd: number;
-  resetsAt: string;
+  resetsAt: string | null;
 }
 
 /**
- * 描述第三方账号基于本地审计事件推导出的预算消耗。
+ * 描述一个 token 额度窗口在 UI 中的展示摘要。
+ */
+export interface AccountTokenQuotaWindowSummary {
+  label: string;
+  limitTokens: number;
+  usedTokens: number;
+  remainingTokens: number;
+  resetsAt: string | null;
+}
+
+/**
+ * 描述第三方账号基于本地审计事件推导出的金额与 token 额度消耗。
  */
 export interface AccountBudgetSnapshot {
   shortWindow: AccountBudgetWindowSummary | null;
   weeklyWindow: AccountBudgetWindowSummary | null;
+  totalBudget: AccountBudgetWindowSummary | null;
+  tokenWindow: AccountTokenQuotaWindowSummary | null;
 }
 
 /**

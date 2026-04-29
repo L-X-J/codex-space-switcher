@@ -198,8 +198,8 @@
                     <span>账号</span>
                     <span>状态</span>
                     <span>累计 Token</span>
-                    <span>短周期剩余</span>
-                    <span>每周剩余</span>
+                    <span>额度 1</span>
+                    <span>额度 2</span>
                     <span>路由</span>
                   </div>
                   <div id="accountsList" class="account-list"></div>
@@ -434,7 +434,7 @@
               <div class="form-section-head">
                 <span class="field-label">单独计费规则（可选）</span>
                 <span class="muted-text">
-                  留空时按官方公开定价估算；额度会按当前生效的单价扣减。
+                  留空时按官方公开定价估算；美元额度按当前单价扣减，Token 额度按总 Token 扣减。
                 </span>
               </div>
               <div class="form-grid form-grid-3">
@@ -499,6 +499,34 @@
                     inputmode="decimal"
                     placeholder="USD"
                   />
+                </label>
+              </div>
+              <div class="form-grid form-grid-2">
+                <label class="form-field">
+                  <span class="field-label">总金额额度</span>
+                  <input
+                    id="thirdPartyAccountTotalBudgetInput"
+                    class="text-input"
+                    type="number"
+                    min="0"
+                    step="0.0001"
+                    inputmode="decimal"
+                    placeholder="例如：200"
+                  />
+                  <span class="field-hint">按全部历史请求累计扣减，不按时间窗口重置。</span>
+                </label>
+                <label class="form-field">
+                  <span class="field-label">每月 Token 总额</span>
+                  <input
+                    id="thirdPartyAccountMonthlyTokenLimitInput"
+                    class="text-input"
+                    type="number"
+                    min="0"
+                    step="1"
+                    inputmode="numeric"
+                    placeholder="例如：200000000"
+                  />
+                  <span class="field-hint">按自然月统计总 Token，适合 MiMo 这类 token 套餐。</span>
                 </label>
               </div>
               <label class="form-field">
@@ -698,14 +726,14 @@
             <span class="metric-footnote account-estimated-cost"></span>
           </div>
         </div>
-        <div class="account-cell">
+        <div class="account-cell account-cell-quota">
           <span class="metric-label account-short-window-label">短周期剩余</span>
           <div class="summary-stat">
             <strong class="metric-value account-primary-remaining"></strong>
             <span class="metric-footnote account-primary-reset"></span>
           </div>
         </div>
-        <div class="account-cell">
+        <div class="account-cell account-cell-quota">
           <span class="metric-label account-weekly-window-label">每周剩余</span>
           <div class="summary-stat">
             <strong class="metric-value account-secondary-remaining"></strong>

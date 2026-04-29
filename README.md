@@ -242,7 +242,17 @@ supports_websockets = false
       "apiBaseUrl": "https://api.openai.com/v1",
       "apiProtocol": "responses",
       "apiKeyEnvName": "SPACE_SWITCHER_THIRD_PARTY_KEY",
-      "defaultModel": "gpt-5.4-mini"
+      "defaultModel": "gpt-5.4-mini",
+      "billingRule": {
+        "pricing": {
+          "inputPerMillionUsd": 1,
+          "cachedInputPerMillionUsd": 0.1,
+          "outputPerMillionUsd": 2
+        },
+        "quota": {
+          "totalBudgetUsd": 200
+        }
+      }
     },
     {
       "id": "mimo-token-plan-cn",
@@ -252,11 +262,21 @@ supports_websockets = false
       "apiProtocol": "chat_completions",
       "apiKeyEnvName": "MIMO_TOKEN_PLAN_KEY",
       "defaultModel": "mimo-v2.5-pro",
-      "requiresResponsesWebSocket": false
+      "requiresResponsesWebSocket": false,
+      "billingRule": {
+        "quota": {
+          "tokenQuota": {
+            "limitTokens": 200000000,
+            "windowKind": "monthly"
+          }
+        }
+      }
     }
   ]
 }
 ```
+
+第三方账号的 `billingRule.quota` 支持多种本地扣减口径：`shortWindowBudgetUsd`（5 小时或每天）、`weeklyBudgetUsd`、`totalBudgetUsd`（累计金额，不重置），以及 `tokenQuota`（当前支持自然月 token 总额）。
 
 ### MiMo Token Plan 接入
 
@@ -352,6 +372,7 @@ npm test
 - WebSocket usage 捕获
 - Codex provider 的 `supports_websockets` 配置联动
 - 费用估算
+- 第三方账号自定义金额 / token 额度
 - 第三方账号校验
 - 统计聚合与账号更新流程
 
@@ -360,6 +381,6 @@ npm test
 - 当前主路径是“本地代理切换账号”，不是直接控制官方私有空间切换
 - 多官方账号仍依赖登录态快照或手动粘贴会话
 - 费用为基于模型定价规则的估算值，不等同于官方精确账单
-- 第三方账号没有统一额度标准，当前主要关注代理用量审计，不伪造统一余额接口
+- 第三方账号没有统一余额接口，控制台只会按你配置的本地金额 / token 规则从审计事件中推导剩余量
 - Chat Completions 适配优先覆盖文本、函数工具、`local_shell` 和 `apply_patch`；MCP namespace、web_search、image_generation 等能力尚未完整适配
 - 网关刻意保持轻量，不做复杂补偿、多轮编排或通用平台代理层

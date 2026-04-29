@@ -6,6 +6,7 @@ import {
   formatProxyClientKind,
   formatResetCountdown,
   formatTokenCount,
+  formatTokenRate,
   formatWindowMeta,
   translateHealth,
 } from "./formatters.js";
@@ -313,6 +314,12 @@ export function renderUsagePanels(usageDashboard, elements) {
     fragment.querySelector(".usage-metric-output").textContent = formatTokenCount(
       windowSummary.totals.outputTokens,
     );
+    fragment.querySelector(".usage-metric-total").textContent = formatTokenCount(
+      windowSummary.totals.totalTokens,
+    );
+    fragment.querySelector(".usage-metric-rate").textContent = formatTokenRate(
+      windowSummary.totals.tokenRatePerSecond,
+    );
     fragment.querySelector(".usage-metric-cost").textContent = formatCurrency(
       windowSummary.totals.estimatedCostUsd,
     );
@@ -544,12 +551,31 @@ export function renderUsageEvents(events, elements) {
     fragment.querySelector(".event-total-tokens").textContent = formatTokenCount(
       event.totalTokens,
     );
+    fragment.querySelector(".event-token-rate").textContent = formatTokenRate(
+      event.tokenRatePerSecond ?? calculateFallbackTokenRate(event),
+    );
     fragment.querySelector(".event-cost").textContent = formatCurrency(
       event.estimatedCostUsd,
     );
     fragment.querySelector(".event-status").textContent = event.status;
     elements.eventsList.appendChild(fragment);
   }
+}
+
+/**
+ * 为旧版审计记录补算 token 速率。
+ *
+ * @param {any} event 已落盘的代理请求事件。
+ * @returns {number} token/秒；缺少有效耗时时返回 0。
+ */
+function calculateFallbackTokenRate(event) {
+  const totalTokens = Number(event?.totalTokens ?? 0);
+  const latencyMs = Number(event?.latencyMs ?? 0);
+  if (!Number.isFinite(totalTokens) || !Number.isFinite(latencyMs) || latencyMs <= 0) {
+    return 0;
+  }
+
+  return Math.max(totalTokens, 0) / (latencyMs / 1000);
 }
 
 /**

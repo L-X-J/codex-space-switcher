@@ -30,6 +30,8 @@ const accounts = [
       totalTokens: 0,
       estimatedCostUsd: 0,
       requests: 0,
+      totalLatencyMs: 0,
+      tokenRatePerSecond: 0,
     },
     rawDiagnostics: [],
   },
@@ -51,6 +53,8 @@ const accounts = [
       totalTokens: 0,
       estimatedCostUsd: 0,
       requests: 0,
+      totalLatencyMs: 0,
+      tokenRatePerSecond: 0,
     },
     rawDiagnostics: [],
   },
@@ -83,6 +87,8 @@ const accounts = [
       totalTokens: 0,
       estimatedCostUsd: 0,
       requests: 0,
+      totalLatencyMs: 0,
+      tokenRatePerSecond: 0,
     },
     rawDiagnostics: [],
   },
@@ -102,6 +108,7 @@ const events = [
     estimatedCostUsd: 0.01,
     status: "completed",
     latencyMs: 600,
+    tokenRatePerSecond: 2166.6666666666665,
     createdAt: "2026-04-17T04:30:00.000Z",
   },
   {
@@ -117,6 +124,7 @@ const events = [
     estimatedCostUsd: 0.02,
     status: "completed",
     latencyMs: 700,
+    tokenRatePerSecond: 3571.4285714285716,
     createdAt: "2026-04-12T05:30:00.000Z",
   },
   {
@@ -132,6 +140,7 @@ const events = [
     estimatedCostUsd: 0.005,
     status: "completed",
     latencyMs: 320,
+    tokenRatePerSecond: 1875,
     createdAt: "2026-04-17T06:40:00.000Z",
   },
 ];
@@ -163,6 +172,8 @@ test("应能按单个账号筛选最近事件", () => {
   assert.equal(totals.requests, 1);
   assert.equal(totals.cachedInputTokens, 100);
   assert.equal(totals.totalTokens, 600);
+  assert.equal(totals.totalLatencyMs, 320);
+  assert.equal(totals.tokenRatePerSecond, 1875);
   assert.ok(Math.abs(totals.estimatedCostUsd - 0.00061) < 1e-12);
 });
 

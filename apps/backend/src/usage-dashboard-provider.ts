@@ -167,7 +167,7 @@ export function aggregateUsageTotals(
   accounts: AccountCard[] = [],
 ): AccountUsageTotals {
   const accountsById = buildAccountMap(accounts);
-  return events.reduce<AccountUsageTotals>(
+  const totals = events.reduce<AccountUsageTotals>(
     (totals, event) => {
       totals.inputTokens += event.inputTokens;
       totals.cachedInputTokens += event.cachedInputTokens;
@@ -175,10 +175,13 @@ export function aggregateUsageTotals(
       totals.totalTokens += event.totalTokens;
       totals.estimatedCostUsd += resolveEventCostUsd(event, accountsById);
       totals.requests += 1;
+      totals.totalLatencyMs += normalizeLatencyMs(event.latencyMs);
       return totals;
     },
     createEmptyUsageTotals(),
   );
+  totals.tokenRatePerSecond = calculateWindowTokenRatePerSecond(totals);
+  return totals;
 }
 
 /**
@@ -194,7 +197,39 @@ export function createEmptyUsageTotals(): AccountUsageTotals {
     totalTokens: 0,
     estimatedCostUsd: 0,
     requests: 0,
+    totalLatencyMs: 0,
+    tokenRatePerSecond: 0,
   };
+}
+
+/**
+ * 计算一个统计窗口的加权 token 速率。
+ *
+ * @param totals 已聚合的 token 和耗时数据。
+ * @returns token/秒；没有有效耗时时返回 0。
+ */
+function calculateWindowTokenRatePerSecond(
+  totals: AccountUsageTotals,
+): number {
+  if (totals.totalTokens <= 0 || totals.totalLatencyMs <= 0) {
+    return 0;
+  }
+
+  return totals.totalTokens / (totals.totalLatencyMs / 1000);
+}
+
+/**
+ * 规整历史事件中的耗时字段。
+ *
+ * @param latencyMs 事件落盘时记录的请求耗时。
+ * @returns 可用于聚合的非负毫秒数。
+ */
+function normalizeLatencyMs(latencyMs: number): number {
+  if (!Number.isFinite(latencyMs) || latencyMs <= 0) {
+    return 0;
+  }
+
+  return latencyMs;
 }
 
 /**

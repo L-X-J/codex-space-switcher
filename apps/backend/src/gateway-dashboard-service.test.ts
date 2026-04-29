@@ -28,6 +28,8 @@ function createAccount(
       totalTokens: 0,
       estimatedCostUsd: 0,
       requests: 0,
+      totalLatencyMs: 0,
+      tokenRatePerSecond: 0,
     },
     rawDiagnostics: [],
   } as const;

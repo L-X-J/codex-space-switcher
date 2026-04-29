@@ -38,6 +38,7 @@ export function buildUsageEvent(
   const outputTokens = usage?.outputTokens ?? 0;
   const totalTokens =
     usage?.totalTokens ?? Math.max(inputTokens + outputTokens, 0);
+  const tokenRatePerSecond = calculateTokenRatePerSecond(totalTokens, latencyMs);
 
   return {
     id: createId(),
@@ -60,8 +61,33 @@ export function buildUsageEvent(
       overrideStatus ??
       (statusCode >= 400 ? `upstream_${statusCode}` : "completed"),
     latencyMs,
+    tokenRatePerSecond,
     createdAt,
   };
+}
+
+/**
+ * 按请求耗时估算 token 速率。
+ *
+ * @param totalTokens 本次请求捕获到的总 token；缺失 usage 时通常为 0。
+ * @param latencyMs 请求从进入本地代理到响应完成的耗时。
+ * @returns token/秒；耗时非法或无 token 时返回 0，避免展示无意义的 Infinity。
+ */
+export function calculateTokenRatePerSecond(
+  totalTokens: number,
+  latencyMs: number,
+): number {
+  if (!Number.isFinite(totalTokens) || !Number.isFinite(latencyMs)) {
+    return 0;
+  }
+
+  const safeTokens = Math.max(totalTokens, 0);
+  const safeLatencyMs = Math.max(latencyMs, 0);
+  if (safeTokens === 0 || safeLatencyMs === 0) {
+    return 0;
+  }
+
+  return safeTokens / (safeLatencyMs / 1000);
 }
 
 /**

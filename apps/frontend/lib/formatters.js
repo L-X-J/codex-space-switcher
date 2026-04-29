@@ -14,6 +14,19 @@ export function formatTokenCount(value) {
 }
 
 /**
+ * 格式化 token 生成速率。
+ *
+ * @param {number} value 原始 token/秒。
+ * @returns {string}
+ */
+export function formatTokenRate(value) {
+  const safeValue = Number.isFinite(value) ? Math.max(value, 0) : 0;
+  return `${new Intl.NumberFormat("zh-CN", {
+    maximumFractionDigits: safeValue >= 100 ? 0 : 1,
+  }).format(safeValue)} token/s`;
+}
+
+/**
  * 格式化美元金额。
  *
  * @param {number} value 原始金额。

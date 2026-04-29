@@ -311,8 +311,8 @@ store = false
 
   assert.equal(result.mutation.configChanged, true);
   assert.equal(result.mutation.restartRequired, true);
-  assert.match(result.mutation.restartReason, /需要重启 Codex Desktop/);
+  assert.match(result.mutation.restartReason, /需要重启 Codex/);
   assert.match(result.configText, /supports_websockets = true/);
   assert.equal(result.gatewayState.codexConfigRestartPending, true);
-  assert.match(result.gatewayState.codexConfigRestartReason, /需要重启 Codex Desktop/);
+  assert.match(result.gatewayState.codexConfigRestartReason, /需要重启 Codex/);
 });

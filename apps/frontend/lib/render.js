@@ -172,6 +172,7 @@ export function renderCodexProxy(codexProxy, elements, viewState = {}) {
  * @param {{
  *   isOpen: boolean,
  *   isRestarting: boolean,
+ *   canRestart?: boolean,
  *   reason: string | null,
  *   feedback: string | null,
  *   tone: string | null,
@@ -190,13 +191,19 @@ export function renderCodexRestartModal(elements, viewState) {
   if (elements.codexRestartMessage) {
     elements.codexRestartMessage.textContent =
       viewState.reason ??
-      "配置已写入 ~/.codex/config.toml，需要重启 Codex Desktop 才能生效。";
+      "配置已写入 ~/.codex/config.toml，需要重启 Codex 后才能生效。";
   }
 
   if (elements.codexRestartConfirmButton) {
-    elements.codexRestartConfirmButton.disabled = viewState.isRestarting === true;
+    const canRestart = viewState.canRestart !== false;
+    elements.codexRestartConfirmButton.disabled =
+      viewState.isRestarting === true || !canRestart;
     elements.codexRestartConfirmButton.textContent =
-      viewState.isRestarting === true ? "正在重启..." : "立即重启";
+      viewState.isRestarting === true
+        ? "正在重启..."
+        : canRestart
+          ? "立即重启"
+          : "手动重启";
   }
 
   if (elements.codexRestartDismissButton) {
@@ -236,7 +243,7 @@ export function renderAccountSwitchConfirmModal(elements, viewState) {
   if (elements.accountSwitchConfirmMessage) {
     elements.accountSwitchConfirmMessage.textContent =
       viewState.message ??
-      "切换到该账号会先改写 ~/.codex/config.toml，随后需要重启 Codex Desktop 才能生效。是否继续？";
+      "切换到该账号会先改写 ~/.codex/config.toml，随后需要重启 Codex 后才能生效。是否继续？";
   }
 
   if (elements.accountSwitchConfirmContinueButton) {
@@ -465,7 +472,7 @@ export function renderAccountCreationForms(elements, viewState) {
   if (elements.accountCreateModalDescription) {
     elements.accountCreateModalDescription.textContent =
       viewState.mode === "edit"
-        ? "仅允许修改该账号已有类型下的配置。若当前账号正承接本地代理，保存后可能需要重启 Codex Desktop 才能生效。"
+        ? "仅允许修改该账号已有类型下的配置。若当前账号正承接本地代理，保存后可能需要重启 Codex 后才能生效。"
         : "先选择账号类型，再填写对应信息。保存前都会先做一次必要校验，避免把无效账号写进路由配置。";
   }
 

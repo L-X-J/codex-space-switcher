@@ -51,7 +51,7 @@ export interface CodexSession {
 }
 
 /**
- * 本文件负责读取 Codex Desktop 的本地登录态。
+ * 本文件负责读取 Codex 的本地登录态。
  * 这是所有远程私有接口请求的入口，因此需要把异常信息做得足够明确。
  * 当前同时兼容两类来源：
  * 1. `~/.codex/auth.json` 这类带 `tokens.access_token` 的桌面端登录态；

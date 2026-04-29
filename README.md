@@ -172,7 +172,7 @@ Codex App / Codex CLI
 
 ### 环境要求
 
-- macOS
+- macOS 或 Windows
 - Node.js `24+`
 - 已安装 Codex App 或 Codex CLI
 
@@ -213,6 +213,14 @@ supports_websockets = false
 - 受管 provider 的 `base_url`
 - 当前 `supports_websockets` 是否与路由账号一致
 - 最近 10 分钟是否检测到 Codex 流量经过本地代理
+
+macOS 与 Windows 都支持在控制台里触发 Codex 自动重启。Windows 下如果 Codex 不在常见安装目录或 PATH 中，可以设置：
+
+```powershell
+$env:CODEX_SPACE_SWITCHER_CODEX_EXE="C:\Path\To\Codex.exe"
+```
+
+高级场景也可以用 `CODEX_SPACE_SWITCHER_RESTART_COMMAND` 覆盖完整启动命令。
 
 ## 账号配置
 
@@ -334,6 +342,12 @@ MiMo Token Plan 的 OpenAI 兼容入口当前是 Chat Completions 协议，不�
 
 ```bash
 export CODEX_SPACE_SWITCHER_HOME="$HOME/.codex-space-switcher"
+```
+
+Windows PowerShell：
+
+```powershell
+$env:CODEX_SPACE_SWITCHER_HOME="$env:USERPROFILE\.codex-space-switcher"
 ```
 
 关键文件包括：

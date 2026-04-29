@@ -1,5 +1,6 @@
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * 本文件集中维护本地工具依赖的路径与默认配置。
@@ -21,15 +22,21 @@ export const GATEWAY_BASE_PATH = "/ai-router/api/v1";
 export const GATEWAY_PROVIDER_BASE_PATH = "/ai-router/api";
 export const MANAGED_CODEX_PROVIDER_NAME = "space_switcher";
 export const CODEX_PROXY_RECENT_WINDOW_MINUTES = 10;
+export const CODEX_APP_EXECUTABLE_ENV = "CODEX_SPACE_SWITCHER_CODEX_EXE";
+export const CODEX_APP_RESTART_COMMAND_ENV =
+  "CODEX_SPACE_SWITCHER_RESTART_COMMAND";
 
 export const CODEX_HOME = path.join(os.homedir(), ".codex");
 export const CODEX_CONFIG_FILE = path.join(CODEX_HOME, "config.toml");
-export const DESKTOP_SUPPORT_HOME = path.join(
-  os.homedir(),
-  "Library",
-  "Application Support",
-  "Codex",
-);
+export const DESKTOP_SUPPORT_HOME =
+  process.platform === "win32"
+    ? path.join(
+        process.env.APPDATA ?? path.join(os.homedir(), "AppData", "Roaming"),
+        "Codex",
+      )
+    : process.platform === "darwin"
+      ? path.join(os.homedir(), "Library", "Application Support", "Codex")
+      : path.join(CODEX_HOME, "desktop");
 export const SWITCHER_HOME =
   process.env.CODEX_SPACE_SWITCHER_HOME ??
   path.resolve(process.cwd(), ".codex-space-switcher-state");
@@ -66,8 +73,10 @@ export const LOGS_SQLITE_FILE = path.join(CODEX_HOME, "logs_1.sqlite");
 export const SESSION_HISTORY_ROOT = path.join(CODEX_HOME, "sessions");
 export const SESSION_ARCHIVE_ROOT = path.join(CODEX_HOME, "archived_sessions");
 
+const BACKEND_SOURCE_ROOT = path.dirname(fileURLToPath(import.meta.url));
+
 export const FRONTEND_ROOT = path.resolve(
-  path.dirname(new URL(import.meta.url).pathname),
+  BACKEND_SOURCE_ROOT,
   "../../frontend",
 );
 
@@ -98,9 +107,3 @@ export const SWITCH_CANDIDATES = [
     bodyKey: "account_id",
   },
 ] as const;
-
-export const RESTART_COMMAND = [
-  "open",
-  "-a",
-  "/Applications/Codex.app",
-];

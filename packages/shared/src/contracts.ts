@@ -25,6 +25,8 @@ export type SwitchJobStage =
 
 export type CodexRuntimeState = "running" | "stopped" | "busy" | "unknown";
 
+export type CodexRuntimePlatform = "darwin" | "win32" | "linux" | "unknown";
+
 export type UsageFilterKind = "all" | "account_kind" | "account";
 
 /**
@@ -218,11 +220,14 @@ export interface SwitchJob {
 }
 
 /**
- * 描述 Codex Desktop 当前的运行态。
+ * 描述 Codex App / CLI 当前的运行态。
  */
 export interface CodexRuntimeStatus {
   state: CodexRuntimeState;
   isBusy: boolean;
+  platform: CodexRuntimePlatform;
+  canRestart: boolean;
+  restartHint: string | null;
   lastObservedAt: string;
   detail: string;
 }
@@ -564,7 +569,7 @@ export interface SetCodexProxyEnabledRequestBody {
 }
 
 /**
- * 描述触发 Codex Desktop 重启后的结果。
+ * 描述触发 Codex App / CLI 重启后的结果。
  */
 export interface RestartCodexAppResponse {
   ok: boolean;

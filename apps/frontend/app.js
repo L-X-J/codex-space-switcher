@@ -92,6 +92,7 @@ const state = {
   codexRestart: {
     isOpen: false,
     isRestarting: false,
+    canRestart: true,
     reason: null,
     feedback: null,
     tone: "warning",
@@ -776,11 +777,17 @@ function closeAccountCreationModal() {
  * @param {string | null | undefined} reason 提示文案。
  */
 function openCodexRestartModal(reason) {
+  const runtime = state.status?.runtime ?? null;
+  const canRestart = runtime?.canRestart !== false;
   state.codexRestart.isOpen = true;
+  state.codexRestart.canRestart = canRestart;
   state.codexRestart.reason =
-    reason ?? "配置已写入 ~/.codex/config.toml，需要重启 Codex Desktop 才能生效。";
-  state.codexRestart.feedback = "重启前，当前 Codex 仍会继续使用旧配置。";
-  state.codexRestart.tone = "warning";
+    reason ?? "配置已写入 ~/.codex/config.toml，需要重启 Codex 后才能生效。";
+  state.codexRestart.feedback =
+    canRestart
+      ? "重启前，当前 Codex 仍会继续使用旧配置。"
+      : runtime?.restartHint ?? "当前平台暂不支持自动重启 Codex，请手动重启。";
+  state.codexRestart.tone = canRestart ? "warning" : "error";
   renderCodexRestart();
 }
 
@@ -795,7 +802,7 @@ function openAccountSwitchConfirmModal(accountId, message) {
   state.accountSwitchConfirm.targetAccountId = accountId;
   state.accountSwitchConfirm.message =
     message ??
-    "切换到该账号会先改写 ~/.codex/config.toml，随后需要重启 Codex Desktop 才能生效。是否继续？";
+    "切换到该账号会先改写 ~/.codex/config.toml，随后需要重启 Codex 后才能生效。是否继续？";
   state.accountSwitchConfirm.feedback =
     "只有你确认继续后，系统才会真正写入 ~/.codex/config.toml。";
   state.accountSwitchConfirm.tone = "warning";
@@ -824,6 +831,7 @@ function closeCodexRestartModal() {
   }
 
   state.codexRestart.isOpen = false;
+  state.codexRestart.canRestart = true;
   renderCodexRestart();
 }
 
@@ -1221,14 +1229,23 @@ function isAnyAccountCreationPending() {
 }
 
 /**
- * 请求立即重启 Codex Desktop。
+ * 请求立即重启 Codex。
  *
  * @returns {Promise<void>}
  */
 async function handleCodexRestartConfirm() {
+  if (state.codexRestart.canRestart === false) {
+    state.codexRestart.feedback =
+      state.status?.runtime?.restartHint ??
+      "当前平台暂不支持自动重启 Codex，请手动重启。";
+    state.codexRestart.tone = "error";
+    renderCodexRestart();
+    return;
+  }
+
   let restartSucceeded = false;
   state.codexRestart.isRestarting = true;
-  state.codexRestart.feedback = "正在请求关闭并重新拉起 Codex Desktop ...";
+  state.codexRestart.feedback = "正在请求关闭并重新拉起 Codex ...";
   state.codexRestart.tone = "warning";
   renderCodexRestart();
 

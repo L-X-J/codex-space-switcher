@@ -40,11 +40,13 @@ import {
   deriveOfficialHealth,
   loadOfficialUsageSnapshot,
 } from "./official-account-usage-provider.ts";
+import { getCodexAppCapabilities } from "./codex-app-controller.ts";
 import {
   inspectCodexRuntime,
   startCodexApp,
   stopCodexApp,
 } from "./codex-runtime-inspector.ts";
+import { HttpError } from "./http-error.ts";
 import { createIdleSwitchJob } from "./state-store.ts";
 import {
   aggregateUsageTotals,
@@ -59,6 +61,7 @@ import {
 import { formatError } from "./utils.ts";
 
 type EventListener = (event: ServerEvent<unknown>) => void;
+const INITIAL_CODEX_APP_CAPABILITIES = getCodexAppCapabilities();
 
 /**
  * 本文件负责维护账号看板的内存态。
@@ -115,6 +118,9 @@ export class GatewayDashboardService {
     runtime: {
       state: "unknown",
       isBusy: false,
+      platform: INITIAL_CODEX_APP_CAPABILITIES.platform,
+      canRestart: INITIAL_CODEX_APP_CAPABILITIES.canRestart,
+      restartHint: INITIAL_CODEX_APP_CAPABILITIES.restartHint,
       lastObservedAt: new Date().toISOString(),
       detail: "等待首次运行态探测。",
     },
@@ -180,7 +186,7 @@ export class GatewayDashboardService {
   }
 
   /**
-   * 刷新 Codex Desktop 当前运行态。
+   * 刷新 Codex 当前运行态。
    *
    * @returns 无返回值。
    */
@@ -449,7 +455,7 @@ export class GatewayDashboardService {
       ok: true,
       requiresConfigRewrite,
       message: requiresConfigRewrite
-        ? `切换到 ${target.name} 会先改写 ~/.codex/config.toml，随后需要重启 Codex Desktop 才能生效。是否继续？`
+        ? `切换到 ${target.name} 会先改写 ~/.codex/config.toml，随后需要重启 Codex 后才能生效。是否继续？`
         : null,
     };
   }
@@ -575,11 +581,21 @@ export class GatewayDashboardService {
   }
 
   /**
-   * 重启本机 Codex Desktop，并在成功后清空“等待重启生效”标记。
+   * 重启本机 Codex，并在成功后清空“等待重启生效”标记。
    *
    * @returns 重启结果摘要。
+   * @throws 当当前平台不支持自动重启，或系统命令失败时抛出异常。
    */
   async restartCodexApp(): Promise<RestartCodexAppResponse> {
+    const capabilities = getCodexAppCapabilities();
+    if (!capabilities.canRestart) {
+      throw new HttpError(
+        409,
+        capabilities.restartHint ?? "当前平台暂不支持自动重启 Codex，请手动重启。",
+        { code: "codex_restart_unsupported" },
+      );
+    }
+
     await stopCodexApp();
     await startCodexApp();
 
@@ -595,7 +611,7 @@ export class GatewayDashboardService {
 
     return {
       ok: true,
-      message: "已触发 Codex Desktop 重启。",
+      message: "已触发 Codex 重启。",
     };
   }
 

@@ -208,7 +208,7 @@ export class SpaceSwitchService {
     });
 
     await this.trySwitchTarget(target);
-    await this.updateSwitchJob("restart_started", target, "切换请求已发出，准备重启 Codex Desktop。");
+    await this.updateSwitchJob("restart_started", target, "切换请求已发出，准备重启 Codex。");
     this.emit({
       type: "switch.restart_started",
       payload: {
@@ -222,7 +222,7 @@ export class SpaceSwitchService {
     await this.adapter.startCodexApp();
     await this.adapter.sleep(2000);
 
-    await this.updateSwitchJob("verifying", target, "Codex Desktop 已重启，正在校验新空间是否生效。");
+    await this.updateSwitchJob("verifying", target, "Codex 已重启，正在校验新空间是否生效。");
     const refreshedSpaces = await this.context.reloadSpaces();
     const verified = refreshedSpaces.find((space) => space.id === target.id)?.isActive;
 
@@ -236,7 +236,7 @@ export class SpaceSwitchService {
       ...status,
       activeSpaceId: target.id,
       activeSpaceName: target.name,
-      lastSwitchResult: `已切换到 ${target.name}，并完成 Codex Desktop 自动重启。`,
+      lastSwitchResult: `已切换到 ${target.name}，并完成 Codex 自动重启。`,
       switchJob: {
         ...status.switchJob,
         stage: "completed",
@@ -269,7 +269,7 @@ export class SpaceSwitchService {
     while (await this.adapter.isCodexBusy()) {
       if (Date.now() - startedAt >= this.busyWaitTimeoutMs) {
         throw new Error(
-          `Codex Desktop 持续忙碌超过 ${Math.round(this.busyWaitTimeoutMs / 1000)} 秒，已取消本次自动切换。请等待当前任务结束后再试。`,
+          `Codex 持续忙碌超过 ${Math.round(this.busyWaitTimeoutMs / 1000)} 秒，已取消本次自动切换。请等待当前任务结束后再试。`,
         );
       }
 
@@ -477,7 +477,7 @@ export class SpaceSwitchService {
             .join("；");
 
     return [
-      `当前版本尚未找到可用的 Codex Desktop 自动切换机制，因此无法把本地登录态直接切到 ${target.name}。`,
+      `当前版本尚未找到可用的 Codex 自动切换机制，因此无法把本地登录态直接切到 ${target.name}。`,
       "这不是前端按钮问题，而是桌面端当前登录 token 仍然绑定在原空间上。",
       `已验证的切换候选：${attemptsText}`,
     ].join(" ");

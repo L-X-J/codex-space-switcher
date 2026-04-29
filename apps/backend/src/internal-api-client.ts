@@ -15,7 +15,7 @@ export interface InternalApiResponse<T = unknown> {
 }
 
 /**
- * 发送一个带 Codex Desktop 会话头的私有请求。
+ * 发送一个带 Codex 会话头的私有请求。
  *
  * @param session 当前本机会话。
  * @param path 私有接口路径。

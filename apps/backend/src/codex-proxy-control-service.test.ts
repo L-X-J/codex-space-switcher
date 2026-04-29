@@ -191,7 +191,7 @@ test("buildCodexProxyStatus 应在最近窗口内识别到 Codex 流量", () => 
       lastRequestClientLabel: "Codex",
       lastCodexRequestAt: "2026-04-17T09:57:00.000Z",
       codexConfigRestartPending: true,
-      codexConfigRestartReason: "需要重启 Codex Desktop。",
+      codexConfigRestartReason: "需要重启 Codex。",
       codexConfigLastUpdatedAt: "2026-04-17T09:58:00.000Z",
     },
     now,

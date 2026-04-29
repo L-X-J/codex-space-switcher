@@ -123,7 +123,7 @@ export async function readCodexProxyConfigStatus(
  *
  * @param enabled `true` 表示接管，`false` 表示恢复。
  * @param options 可选的覆盖项，主要用于测试。
- * @returns 配置改写结果，以及是否需要重启 Codex Desktop。
+ * @returns 配置改写结果，以及是否需要重启 Codex。
  * @throws 当关闭接管时缺少恢复目标，或配置文件无法写入时抛出异常。
  */
 export async function setCodexProxyEnabled(
@@ -189,7 +189,7 @@ export async function setCodexProxyEnabled(
     configChanged,
     restartRequired: configChanged,
     restartReason: configChanged
-      ? "已更新 ~/.codex/config.toml，需要重启 Codex Desktop 才能生效。"
+      ? "已更新 ~/.codex/config.toml，需要重启 Codex 后才能生效。"
       : null,
   };
 }

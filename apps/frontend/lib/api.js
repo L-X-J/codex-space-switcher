@@ -166,7 +166,7 @@ export function previewActivateAccount(targetAccountId) {
 }
 
 /**
- * 请求重启本机 Codex Desktop。
+ * 请求重启本机 Codex。
  *
  * @returns {Promise<any>}
  */

@@ -23,6 +23,9 @@ function createContext(spaces: SpaceCard[]) {
     runtime: {
       state: "running",
       isBusy: false,
+      platform: "darwin",
+      canRestart: true,
+      restartHint: null,
       lastObservedAt: new Date().toISOString(),
       detail: "mock runtime",
     },
@@ -206,7 +209,7 @@ test("当所有切换候选均失败时，任务会明确提示当前尚无自�
 
   const status = await waitForStatus(getStatus, (current) => current.switchJob.stage === "failed");
   assert.equal(status.switchJob.stage, "failed");
-  assert.match(status.switchJob.message, /尚未找到可用的 Codex Desktop 自动切换机制/);
+  assert.match(status.switchJob.message, /尚未找到可用的 Codex 自动切换机制/);
   assert.match(status.switchJob.message, /405/);
   assert.match(status.switchJob.message, /404/);
 });

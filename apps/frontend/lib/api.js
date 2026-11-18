@@ -4,14 +4,38 @@
  */
 
 /**
+ * 读取服务端注入到首页的控制台 token（每次服务启动随机生成）。
+ *
+ * @returns {string}
+ */
+export function getControlToken() {
+  return (
+    document.querySelector('meta[name="switcher-token"]')?.getAttribute("content") ?? ""
+  );
+}
+
+/**
+ * 构造携带控制台 token 的 SSE 地址（EventSource 无法设置自定义请求头）。
+ *
+ * @returns {string}
+ */
+export function buildEventsUrl() {
+  const url = new URL("/api/events", window.location.origin);
+  url.searchParams.set("token", getControlToken());
+  return url.toString();
+}
+
+/**
  * 发送一个 JSON 请求，并在失败时抛出带后端文案的异常。
  *
  * @param {string} url 请求地址。
  * @param {RequestInit=} init fetch 配置。
  * @returns {Promise<any>}
  */
-export async function fetchJson(url, init) {
-  const response = await fetch(url, init);
+export async function fetchJson(url, init = {}) {
+  const headers = new Headers(init.headers ?? {});
+  headers.set("X-Switcher-Token", getControlToken());
+  const response = await fetch(url, { ...init, headers });
   const text = await response.text();
   const payload = text.length > 0 ? JSON.parse(text) : null;
 

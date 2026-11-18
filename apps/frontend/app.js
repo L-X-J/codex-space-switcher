@@ -1,5 +1,6 @@
 import {
   activateAccount,
+  buildEventsUrl,
   createAccount,
   getEditableAccount,
   getAccounts,
@@ -632,7 +633,7 @@ function buildThirdPartyAccountPayload() {
  * 建立 SSE 事件流，局部刷新页面。
  */
 function connectEvents() {
-  const events = new EventSource("/api/events");
+  const events = new EventSource(buildEventsUrl());
   elements.connectionBadge.textContent = "实时连接中";
 
   events.addEventListener("accounts.updated", async (event) => {

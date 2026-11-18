@@ -30,6 +30,15 @@ import {
 } from "./usage-dashboard-provider.ts";
 import { loadUsageEvents } from "./usage-event-store.ts";
 import { HttpError } from "./http-error.ts";
+import {
+  buildAllowedHosts,
+  checkControlToken,
+  checkCrossSite,
+  checkHost,
+  generateControlToken,
+  injectControlToken,
+  type GuardResult,
+} from "./local-request-guard.ts";
 
 /**
  * 本文件是本地控制台与代理网关的统一入口。
@@ -38,6 +47,9 @@ import { HttpError } from "./http-error.ts";
 
 const RUNTIME_REFRESH_INTERVAL_MS = 5_000;
 const ACCOUNT_REFRESH_INTERVAL_MS = 60_000;
+
+const CONTROL_TOKEN = generateControlToken();
+const ALLOWED_HOSTS = buildAllowedHosts(HOST, PORT);
 
 const sseClients = new Set<import("node:http").ServerResponse>();
 const dashboardService = new GatewayDashboardService();
@@ -84,6 +96,15 @@ async function main(): Promise<void> {
 
   const server = createServer(async (request, response) => {
     try {
+      const rejection = guardHttpRequest(request);
+      if (rejection) {
+        response.writeHead(rejection.statusCode, {
+          "Content-Type": "application/json; charset=utf-8",
+        });
+        response.end(JSON.stringify({ error: rejection.reason, code: "forbidden" }));
+        return;
+      }
+
       await routeRequest(request, response);
     } catch (error) {
       if (response.headersSent) {
@@ -106,6 +127,19 @@ async function main(): Promise<void> {
 
   server.on("upgrade", (request, socket, head) => {
     const url = new URL(request.url ?? "/", `http://${HOST}:${PORT}`);
+    const rejection =
+      firstFailure(checkHost(request, ALLOWED_HOSTS)) ??
+      firstFailure(checkCrossSite(request, ALLOWED_HOSTS));
+    if (rejection) {
+      socket.end(
+        `HTTP/1.1 ${rejection.statusCode} Forbidden
+Connection: close
+
+`,
+      );
+      return;
+    }
+
     if (isGatewayResponsesPath(url.pathname)) {
       void websocketProxyService.handleResponsesUpgrade(request, socket, head);
       return;
@@ -120,6 +154,53 @@ async function main(): Promise<void> {
       `本地代理入口：http://${HOST}:${PORT}/ai-router/api/responses`,
     );
   });
+}
+
+/**
+ * 校验请求来源：Host 白名单（防 DNS rebinding）、跨站来源、以及 `/api/*` 的控制台 token。
+ *
+ * @param request HTTP 请求对象。
+ * @returns 拒绝原因；放行时返回 `null`。
+ */
+function guardHttpRequest(
+  request: import("node:http").IncomingMessage,
+): Extract<GuardResult, { ok: false }> | null {
+  const hostFailure = firstFailure(checkHost(request, ALLOWED_HOSTS));
+  if (hostFailure) {
+    return hostFailure;
+  }
+
+  const url = new URL(request.url ?? "/", `http://${HOST}:${PORT}`);
+  const isApi = url.pathname === "/api" || url.pathname.startsWith("/api/");
+  const isGateway = url.pathname.startsWith("/ai-router/");
+
+  if (!isApi && !isGateway) {
+    return null;
+  }
+
+  const crossSiteFailure = firstFailure(checkCrossSite(request, ALLOWED_HOSTS));
+  if (crossSiteFailure) {
+    return crossSiteFailure;
+  }
+
+  if (isApi) {
+    return firstFailure(
+      checkControlToken(
+        request,
+        url,
+        CONTROL_TOKEN,
+        url.pathname === "/api/events" && request.method === "GET",
+      ),
+    );
+  }
+
+  return null;
+}
+
+function firstFailure(
+  result: GuardResult,
+): Extract<GuardResult, { ok: false }> | null {
+  return result.ok ? null : result;
 }
 
 /**
@@ -361,7 +442,10 @@ async function serveFrontend(
     pathname === "/" ? "/index.html" : pathname;
   const resolvedPath = path.resolve(FRONTEND_ROOT, `.${safePath}`);
 
-  if (!resolvedPath.startsWith(FRONTEND_ROOT)) {
+  if (
+    resolvedPath !== FRONTEND_ROOT &&
+    !resolvedPath.startsWith(FRONTEND_ROOT + path.sep)
+  ) {
     response.writeHead(403);
     response.end("Forbidden");
     return;
@@ -376,11 +460,16 @@ async function serveFrontend(
     return;
   }
 
+  const isHtml = contentTypeFromPath(resolvedPath).startsWith("text/html");
   response.writeHead(200, {
     "Content-Type": contentTypeFromPath(resolvedPath),
     "Cache-Control": "no-store",
+    "X-Frame-Options": "DENY",
+    "Content-Security-Policy": "frame-ancestors 'none'",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
   });
-  response.end(content);
+  response.end(isHtml ? injectControlToken(content, CONTROL_TOKEN) : content);
 }
 
 /**
